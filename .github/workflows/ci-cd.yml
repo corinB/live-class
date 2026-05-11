@@ -67,8 +67,8 @@ jobs:
           file: ./live-class/Dockerfile
           push: true
           tags: |
-            corinB/live-class-back:latest
-            corinB/live-class-back:${{ github.sha }}
+            qor7777777/live-class-back:latest
+            qor7777777/live-class-back:${{ github.sha }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 
@@ -79,8 +79,8 @@ jobs:
           file: ./front/Dockerfile
           push: true
           tags: |
-            corinB/live-class-front:latest
-            corinB/live-class-front:${{ github.sha }}
+            qor7777777/live-class-front:latest
+            qor7777777/live-class-front:${{ github.sha }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
 

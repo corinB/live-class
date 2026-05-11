@@ -48,7 +48,7 @@ services:
 
   # ── Spring Boot App ───────────────────────────────────────────────────────────
   app:
-    image: ${DOCKERHUB_USERNAME:-corinB}/live-class-back:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:-qor7777777}/live-class-back:${IMAGE_TAG:-latest}
     build:
       context: ./live-class
       dockerfile: Dockerfile
@@ -83,7 +83,7 @@ services:
 
   # ── Nginx Static Front ────────────────────────────────────────────────────────
   nginx:
-    image: ${DOCKERHUB_USERNAME:-corinB}/live-class-front:${IMAGE_TAG:-latest}
+    image: ${DOCKERHUB_USERNAME:-qor7777777}/live-class-front:${IMAGE_TAG:-latest}
     build:
       context: ./front
       dockerfile: Dockerfile
