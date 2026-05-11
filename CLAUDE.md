@@ -2,6 +2,7 @@
 
 > **Project context (read these first):**
 >
+> - **`context.yaml` (구조화된 LLM 컨텍스트, 우선 스캔)** — `project_identity`, `business_context.domains`/`glossary`, `constraints_and_rules`를 가장 먼저 읽으면 도메인 용어·금지 규칙·기술 스택을 인덱스 형태로 파악할 수 있다. 풀 텍스트는 `metadata.related_docs`에서 안내.
 > - `ORCHESTRATION.md` — multi-agent pipeline policy (6 sub-agents producing a Spring Boot modular monolith for the live-class enrollment domain).
 > - `AGENTS-SKILLS-HARNESS.md` — quick reference for the three pillars: 6 agents (`.claude/agents/`), 6 slash skills (`.claude/skills/`), and the harness (`.claude/settings.json` + `.claude/hooks/`).
 > - Active application code lives at `live-class/` (Spring Boot 4.0.6 · Java 21 · Gradle Groovy DSL · PostgreSQL + Redis dependencies declared, Swagger wired via `OpenApiConfig`).

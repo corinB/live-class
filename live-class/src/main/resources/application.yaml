@@ -1,6 +1,25 @@
 spring:
   application:
     name: live-class
+  datasource:
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/liveclass}
+    username: ${POSTGRES_USER:liveclass}
+    password: ${POSTGRES_PASSWORD:liveclass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
 
 springdoc:
   api-docs:
