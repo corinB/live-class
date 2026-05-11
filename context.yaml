@@ -120,7 +120,7 @@ context_map:
 
   external_dependencies:
     - service: "Docker Hub"
-      purpose: "컨테이너 이미지 레지스트리. 공개 리포 corinB/live-class-back."
+      purpose: "컨테이너 이미지 레지스트리. 공개 리포 qor7777777/live-class-back."
     - service: "AWS EC2"
       purpose: "런타임 호스트 (Ubuntu 22.04 + docker compose)"
     - service: "Google AI Studio (Gemini API)"
