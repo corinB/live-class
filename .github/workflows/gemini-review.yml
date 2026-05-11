@@ -1,0 +1,122 @@
+# PR 자동 코드 리뷰 — Google Gemini API (gemini-1.5-flash) 호출 후 결과를 PR 댓글로 게시
+name: Gemini AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gemini-review:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' }}
+
+    steps:
+      - name: Checkout PR head (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Compute PR diff (truncated to 50k chars)
+        id: diff
+        run: |
+          set -euo pipefail
+          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
+          RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/**' ':(exclude)plan/**' ':(exclude)reports/**' || true)
+          TOTAL_CHARS=$(printf '%s' "$RAW_DIFF" | wc -c)
+          if [ "$TOTAL_CHARS" -gt 50000 ]; then
+            DIFF=$(printf '%s' "$RAW_DIFF" | head -c 50000)
+            TRUNCATED=true
+          else
+            DIFF="$RAW_DIFF"
+            TRUNCATED=false
+          fi
+          {
+            echo 'diff<<__DIFF_EOF__'
+            printf '%s\n' "$DIFF"
+            echo '__DIFF_EOF__'
+          } >> "$GITHUB_OUTPUT"
+          echo "truncated=$TRUNCATED" >> "$GITHUB_OUTPUT"
+          echo "total_chars=$TOTAL_CHARS" >> "$GITHUB_OUTPUT"
+
+      - name: Call Gemini API
+        id: gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          DIFF: ${{ steps.diff.outputs.diff }}
+          TRUNCATED: ${{ steps.diff.outputs.truncated }}
+        run: |
+          set -euo pipefail
+
+          SYSTEM_PROMPT=$(cat <<'EOF'
+          당신은 Spring Boot 4 + Java 21 백엔드 코드 리뷰 전문가입니다. live-class(라이브 강의 수강신청) 도메인의 PR을 한국어로 리뷰합니다.
+
+          다음 4개 관점에서 우선 검토하세요.
+
+          1. 정확성 — 상태 전이 무결성(DRAFT→OPEN→CLOSED, PENDING→CONFIRMED→CANCELLED), 도메인 invariant 위반 여부.
+          2. 동시성 — 마지막 자리 race, 7일 취소창, 대기열 FIFO 승격에서의 lock 누락이나 double-promotion 가능성.
+          3. 보안 — X-User-Id mock 인증 외 다른 인증 경로 누락, SQL injection, 시크릿 하드코딩.
+          4. 테스트 커버리지 — 상태 전이·동시성·경계 케이스에 대한 테스트 누락.
+
+          출력 형식.
+          - `## 요약`: 2-3줄 한 줄 평
+          - `## 발견사항`: 우선순위(P0/P1/P2)별 bullet. 각 항목에 파일경로:줄번호 인용.
+          - `## 추천 후속작업`: 머지 전에 처리해야 할 것 + 후속 PR로 미뤄도 될 것 구분
+
+          잠재적 거짓양성은 명시("확신 낮음, 컨텍스트 부족"). 칭찬은 짧게.
+          EOF
+          )
+
+          USER_PROMPT="PR Title: $PR_TITLE\n\nPR Description:\n$PR_BODY\n\nDiff (truncated=$TRUNCATED):\n\`\`\`diff\n$DIFF\n\`\`\`"
+
+          REQUEST_BODY=$(jq -n \
+            --arg sys "$SYSTEM_PROMPT" \
+            --arg user "$USER_PROMPT" \
+            '{
+              system_instruction: { parts: [{ text: $sys }] },
+              contents: [{ role: "user", parts: [{ text: $user }] }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+            }')
+
+          RESPONSE=$(curl -sS \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$REQUEST_BODY" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY")
+
+          REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Gemini 응답 파싱 실패. 원본 응답을 확인하세요."')
+
+          {
+            echo 'review<<__REVIEW_EOF__'
+            printf '%s\n' "$REVIEW_BODY"
+            echo '__REVIEW_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post review as PR comment
+        uses: actions/github-script@v7
+        env:
+          REVIEW: ${{ steps.gemini.outputs.review }}
+          TRUNCATED: ${{ steps.diff.outputs.truncated }}
+          TOTAL_CHARS: ${{ steps.diff.outputs.total_chars }}
+        with:
+          script: |
+            const review = process.env.REVIEW || '_리뷰 본문 없음._';
+            const truncated = process.env.TRUNCATED === 'true';
+            const totalChars = process.env.TOTAL_CHARS;
+            const truncNote = truncated
+              ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 50,000자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
+              : '';
+            const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-flash\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

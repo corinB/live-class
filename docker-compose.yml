@@ -1,0 +1,106 @@
+# Live-class Docker Compose — 4 profiles: db | redis | back | front
+# Secrets are injected exclusively via .env; no plaintext credentials in this file.
+
+services:
+
+  # ── PostgreSQL 16 ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    profiles: [db]
+    container_name: live-class-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - live-class-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis 7 ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    profiles: [redis]
+    container_name: live-class-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    networks:
+      - live-class-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Spring Boot App ───────────────────────────────────────────────────────────
+  app:
+    image: ${DOCKERHUB_USERNAME:-corinB}/live-class-back:${IMAGE_TAG:-latest}
+    build:
+      context: ./live-class
+      dockerfile: Dockerfile
+    profiles: [back]
+    container_name: live-class-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL:      ${POSTGRES_URL}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST:     ${REDIS_HOST}
+      SPRING_DATA_REDIS_PORT:     ${REDIS_PORT}
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      SPRING_JPA_SHOW_SQL:           ${JPA_SHOW_SQL:-false}
+      JAVA_OPTS:                  ${JAVA_OPTS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - live-class-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ── Nginx Static Front ────────────────────────────────────────────────────────
+  nginx:
+    image: ${DOCKERHUB_USERNAME:-corinB}/live-class-front:${IMAGE_TAG:-latest}
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    profiles: [front]
+    container_name: live-class-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - live-class-net
+
+# ── Named Volumes ─────────────────────────────────────────────────────────────
+volumes:
+  postgres-data:
+  redis-data:
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  live-class-net:
+    driver: bridge

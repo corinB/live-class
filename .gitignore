@@ -36,3 +36,8 @@ target/
 *.log
 *.log.*
 logs/
+
+# Local env files (committed sample: .env.example)
+.env
+.env.local
+!.env.example

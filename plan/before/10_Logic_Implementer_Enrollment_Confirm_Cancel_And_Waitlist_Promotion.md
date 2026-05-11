@@ -1,0 +1,51 @@
+# Enrollment confirm-payment, cancel, 대기열 자동 승격 구현
+
+- **Assignee:** The Logic Implementer
+- **Dependencies:** 09_Logic_Implementer_Enrollment_Apply_Service_And_Controller.md
+- **Definition of Done (DoD):**
+  - `POST /api/enrollments/{id}/confirm-payment`이 ARCHITECTURE §6.2를 구현한다. mock 결제 → optimistic lock UPDATE → 충돌 시 1회 재시도.
+  - `DELETE /api/enrollments/{id}`이 ARCHITECTURE §6.3를 구현한다. Enrollment FOR UPDATE → Class FOR UPDATE → cancel → previousStatus가 CONFIRMED이면 다음 WAITLISTED 1건 SKIP_LOCKED로 잠그고 promoteFromWaitlist.
+  - cancel + promotion이 단일 트랜잭션 안에서 원자적으로 실행된다 (다중 cancel 동시 발생 시에도 정확히 자리 수만큼만 승격).
+  - 이미 CANCELLED인 enrollment에 DELETE → 200 멱등 응답.
+  - `CONFIRMED + paidAt + 7일 + 1ns` 시점 cancel → 422 `OutsideCancellationWindowException`.
+  - `EnrollmentConfirmedEvent`, `EnrollmentCancelledEvent`, `WaitlistPromotedEvent`가 AFTER_COMMIT 단계에서 발행되고 캐시 evict이 동작한다.
+
+## Action Items (Checklist)
+
+- [ ] `domain/enrollment/event/EnrollmentConfirmedEvent.java` — `record(UUID enrollmentId, UUID classId, UUID classmateId, Instant paidAt, Instant occurredAt)`.
+- [ ] `domain/enrollment/event/EnrollmentCancelledEvent.java` — `record(UUID enrollmentId, UUID classId, UUID classmateId, EnrollmentStatus previousStatus, Instant cancelledAt, Instant occurredAt)`.
+- [ ] `domain/enrollment/event/WaitlistPromotedEvent.java` — `record(UUID enrollmentId, UUID classId, UUID classmateId, Instant occurredAt)`.
+- [ ] `EnrollmentApplicationService.confirmPayment(UUID enrollmentId, UUID classmateId, Instant now)` 메서드 추가.
+  - `@Transactional` + 외부 호출(mock `paymentGateway.charge()`)은 트랜잭션 시작 전에 호출.
+  - `Enrollment e = enrollmentRepository.findById(enrollmentId).orElseThrow(EnrollmentNotFoundException);`
+  - 소유자 검증: `if (!e.getClassmateId().equals(classmateId)) throw new AccessDeniedDomainException();`
+  - `e.confirm(now)` 호출 → save. `OptimisticLockingFailureException` 캐치해 1회 재시도, 그래도 실패 시 409.
+  - AFTER_COMMIT으로 `EnrollmentConfirmedEvent` 발행.
+- [ ] `MockPaymentGateway.java` — `@Component`. `void charge(UUID enrollmentId)` 메서드는 단순히 로그만 출력 (실제 결제 없음).
+- [ ] `EnrollmentApplicationService.cancel(UUID enrollmentId, UUID classmateId, Instant now)` 메서드 추가.
+  - `@Transactional`.
+  - `Enrollment e = enrollmentRepository.findByIdForUpdate(enrollmentId).orElseThrow(...)`.
+  - 소유자 검증.
+  - 이미 CANCELLED면 멱등 응답 (`return EnrollmentResponse.from(e);`).
+  - previousStatus 보존: `EnrollmentStatus prev = e.getStatus();`.
+  - `classRepository.findByIdForUpdate(e.getClassId()).orElseThrow(...)` (직렬화 진입).
+  - `e.cancel(now)` 호출 → save.
+  - `if (prev == CONFIRMED)` 블록 안에서.
+    - `Optional<Enrollment> next = enrollmentRepository.findNextWaitlistedForUpdateSkipLocked(e.getClassId(), PageRequest.of(0,1)).stream().findFirst();`
+    - `next.ifPresent(n -> { n.promoteFromWaitlist(now); enrollmentRepository.save(n); eventPublisher.publishEvent(new WaitlistPromotedEvent(...)); });`
+  - `EnrollmentCancelledEvent` AFTER_COMMIT 발행.
+- [ ] `EnrollmentCacheInvalidator`에 `EnrollmentConfirmedEvent`, `EnrollmentCancelledEvent`, `WaitlistPromotedEvent` 핸들러 추가 — 모두 `class:enrolledCount::{classId}` evict.
+- [ ] `web/enrollment/EnrollmentController.java`에 두 endpoint 추가.
+  - `POST /{id}/confirm-payment` → 200 + `EnrollmentResponse`.
+  - `DELETE /{id}` → 200 + `EnrollmentResponse(CANCELLED)`.
+- [ ] `domain/enrollment/EnrollmentNotFoundException.java` (status 404).
+- [ ] (Verify) `EnrollmentConfirmPaymentTest.java` — `@IntegrationTest`.
+  - 정상 PENDING → confirm → CONFIRMED + paidAt 기록.
+  - WAITLISTED 상태에서 confirm → `IllegalStateTransitionException` 409.
+  - 다른 사용자가 confirm → `AccessDeniedDomainException` 403.
+- [ ] (Verify) `EnrollmentCancelTest.java` — `@IntegrationTest`.
+  - PENDING cancel → CANCELLED, 자리는 비지만 CONFIRMED 아니었으므로 승격 없음.
+  - CONFIRMED 강의 cancel (7일 이내) → CANCELLED + 다음 WAITLISTED 한 명이 PENDING으로 승격됨을 DB 직접 조회로 검증.
+  - CONFIRMED + paidAt + 8일 cancel → 422.
+  - 이미 CANCELLED인 enrollment DELETE → 200 멱등 응답 (재취소 예외 발생하지 않음).
+- [ ] (Verify) `WaitlistPromotionFifoTest.java` — WAITLISTED 3건(appliedAt 다름)이 있을 때 CONFIRMED 1건 cancel → 가장 오래된 1건만 PENDING이 되는지 검증.
