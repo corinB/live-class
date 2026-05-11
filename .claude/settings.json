@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(cat:*)",
+      "Bash(./gradlew test:*)",
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew bootRun:*)",
+      "Bash(./gradlew clean:*)",
+      "Bash(docker compose up:*)",
+      "Bash(docker compose down:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose logs:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(*.key)",
+      "Read(*.pem)",
+      "Read(credentials*)",
+      "Read(secrets*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh\""}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/user-prompt-submit.sh\""}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-warn-design-changes.sh\""}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-destructive.sh\""}]},
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-write-worktree-guard.sh\""}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-md-lint.sh\""}]}
+    ]
+  }
+}

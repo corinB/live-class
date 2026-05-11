@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+credentials*
+secrets*
+
+# Claude ephemeral state
+.claude/agent-memory/
+.claude/worktrees/
+
+# Build / generated output
+build/
+out/
+target/
+.gradle/
+node_modules/
+*.jar
+*.war
+
+# Lock files (high-volume, low-signal)
+*.lock
+package-lock.json
+yarn.lock
+gradle.lock
+
+# Logs
+*.log
+logs/
+
+# IDE / VCS metadata
+.idea/
+.vscode/
+*.iml
+.git/

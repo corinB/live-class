@@ -1,0 +1,58 @@
+<!-- 프로젝트 기여 가이드 템플릿 — 브랜치 명명·커밋 컨벤션·PR 프로세스·태스크 추적 방법을 기술한다 -->
+---
+status: draft
+owner: <fill at use time>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+---
+
+# CONTRIBUTING.md
+
+## Branch Naming
+
+<!-- 이 섹션에는 브랜치 명명 규칙과 예시를 적습니다 -->
+
+| 유형 | 형식 | 예시 |
+|------|------|------|
+| 기능 | `feature/<task-slug>` | `feature/class-entity` |
+| 버그 수정 | `fix/<이슈-번호>-<설명>` | `fix/42-enrollment-null-check` |
+| 인프라 | `infra/<설명>` | `infra/add-redis-cache` |
+| 문서 | `docs/<설명>` | `docs/update-architecture` |
+
+## Commit Convention
+
+<!-- 이 섹션에는 커밋 메시지 형식과 허용 타입 목록을 적습니다 -->
+
+```
+<type>(<scope>): <subject>
+
+[optional body]
+
+[optional footer]
+```
+
+허용 타입: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `infra`
+
+예시:
+```
+feat(enrollment): 수강 신청 정원 초과 시 대기열 등록 로직 추가
+```
+
+## PR Process
+
+<!-- 이 섹션에는 PR 생성·검토·머지 절차와 필수 체크 항목을 적습니다 -->
+
+1. `main` 에서 feature 브랜치 생성.
+2. 작업 완료 후 `plan/after/<task-file>.md` 작성.
+3. `./gradlew test` 통과 확인.
+4. PR 제목: `[feat] <태스크 제목>` 형식 사용.
+5. PR 본문: `.github/pull_request_template.md` 양식 준수.
+6. 최소 1인 리뷰 후 Squash Merge.
+
+## Task Traceability
+
+<!-- 이 섹션에는 태스크 파일과 PR·커밋 간 추적 가능성을 유지하는 방법을 적습니다 -->
+
+- 모든 PR은 `plan/before/<task-file>.md` 를 링크해야 한다.
+- 머지 후 `plan/after/<task-file>.md` 에 결과를 기록한다.
+- 커밋 메시지 footer에 `Resolves: plan/before/<task-file>.md` 를 추가한다.

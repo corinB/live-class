@@ -1,0 +1,37 @@
+<!-- GitHub PR 설명 템플릿 — 요약·연결 태스크·테스트 결과·체크리스트를 기술한다 -->
+---
+status: draft
+owner: <fill at use time>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+---
+
+## Summary
+
+<!-- 이 섹션에는 이 PR이 무엇을 구현하거나 수정했는지 2~3 문장으로 적습니다 -->
+
+<변경 내용 요약>
+
+## Linked Task
+
+<!-- 이 섹션에는 이 PR과 연결된 plan/before 태스크 파일 경로를 적습니다 -->
+
+`plan/before/<task-file>.md`
+
+## Tests
+
+<!-- 이 섹션에는 추가하거나 수정한 테스트와 실행 결과 요약을 적습니다 -->
+
+```
+<./gradlew test 실행 결과 요약>
+```
+
+## Checklist
+
+<!-- 이 섹션에는 PR 제출 전 확인해야 할 항목 목록을 적습니다 -->
+
+- [ ] `./gradlew test` 통과.
+- [ ] 변경된 공개 API에 Swagger 어노테이션 추가.
+- [ ] `plan/after/<task-file>.md` 작성 완료.
+- [ ] 브랜치 명명 규칙(`CONTRIBUTING.md`) 준수.
+- [ ] 불필요한 `console.log` / `System.out.println` 제거.

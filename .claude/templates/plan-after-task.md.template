@@ -1,0 +1,64 @@
+<!-- 태스크 실행 후 결과를 기록하는 사후 보고 템플릿 — plan-before-task 내용을 복사한 뒤 Result 섹션을 추가한다 -->
+---
+status: draft
+owner: <fill at use time>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+---
+
+# Task: <태스크 제목> — After
+
+## Role
+
+<!-- 이 섹션에는 이 태스크를 수행한 에이전트의 역할과 목적을 적습니다 -->
+
+이 태스크를 담당한 에이전트: `blueprint-executor-worker`
+
+목적: <plan-before에서 복사>
+
+## Dependencies
+
+<!-- 이 섹션에는 이 태스크가 의존했던 선행 태스크·파일·인프라를 적습니다 -->
+
+- 선행 태스크: <NN_xxx.md 또는 없음>
+- 사용 파일: DOCS.md, ARCHITECTURE.md
+- 사용 인프라: <postgres, redis 등>
+
+## Definition of Done
+
+<!-- 이 섹션에는 완료 기준과 실제 충족 여부를 적습니다 -->
+
+- [ ] 모든 테스트가 통과한다 (`./gradlew test`).
+- [ ] 정의된 API 엔드포인트가 Swagger UI에서 확인된다.
+- [ ] 불변식(invariant)이 단위 테스트로 검증된다.
+- [ ] <도메인별 추가 완료 기준>
+
+## Checklist
+
+<!-- 이 섹션에는 실제 수행한 단계와 완료 표시를 적습니다 -->
+
+- [ ] 실패하는 테스트 작성 (RED)
+- [ ] 최소 구현으로 테스트 통과 (GREEN)
+- [ ] 리팩터링 (REFACTOR)
+- [ ] 통합 테스트 작성
+- [ ] Swagger 어노테이션 추가
+
+## Result
+
+<!-- 이 섹션에는 태스크 실행 결과, 변경된 파일 목록, 테스트 결과, 남은 후속 작업을 적습니다 -->
+
+### Files Changed
+
+| File | Action |
+|------|--------|
+| <경로> | created / modified |
+
+### Test Results
+
+```
+<./gradlew test 출력 요약>
+```
+
+### Follow-ups
+
+- <후속 태스크 또는 알려진 기술 부채>

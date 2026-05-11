@@ -1,0 +1,105 @@
+<!-- Live Class 도메인 설계 문서 템플릿 — 바운디드 컨텍스트·애그리거트·상태 전이·불변식을 기술한다 -->
+---
+status: draft
+owner: <fill at use time>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+---
+
+# DOCS.md — Live Class Domain Design
+
+## Bounded Contexts
+
+<!-- 이 섹션에는 시스템을 구성하는 바운디드 컨텍스트 목록과 각 컨텍스트의 책임 범위를 적습니다 -->
+
+| Context | Responsibility |
+|---------|---------------|
+| Class | 강의 생성·수정·상태 전이(DRAFT→OPEN→CLOSED) 관리 |
+| Enrollment | 수강 신청·취소·대기열 처리 |
+| User | 사용자 역할(Creator / Classmate) 관리 및 인증 컨텍스트 |
+
+## Aggregates
+
+<!-- 이 섹션에는 각 바운디드 컨텍스트의 애그리거트 루트와 필드 명세를 적습니다 -->
+
+### Class
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | UUID | 강의 식별자 |
+| title | String | 강의 제목 |
+| description | String | 강의 설명 |
+| price | BigDecimal | 수강료 |
+| capacity | int | 최대 정원 |
+| period | DateRange | 수강 기간 (시작일~종료일) |
+| status | Enum(DRAFT, OPEN, CLOSED) | 강의 상태 |
+| creatorId | UUID | 개설자(Creator) 식별자 |
+
+### Enrollment
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | UUID | 수강 신청 식별자 |
+| classId | UUID | 대상 강의 식별자 |
+| classmateId | UUID | 수강생(Classmate) 식별자 |
+| paidAt | Instant | 결제 완료 시각 |
+| cancelledAt | Instant | 취소 시각 (null이면 미취소) |
+| status | Enum(PENDING, CONFIRMED, CANCELLED) | 신청 상태 |
+
+### User
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | UUID | 사용자 식별자 |
+| role | Enum(Creator, Classmate) | 사용자 역할 |
+
+## State Lifecycles
+
+<!-- 이 섹션에는 각 애그리거트의 상태 전이 규칙과 트리거 이벤트를 적습니다 -->
+
+### Class
+
+```
+DRAFT → OPEN    (Creator가 강의를 공개할 때)
+OPEN  → CLOSED  (정원 마감 또는 Creator가 수동 종료할 때)
+```
+
+### Enrollment
+
+```
+PENDING   → CONFIRMED   (결제 완료 확인 시)
+CONFIRMED → CANCELLED   (7일 이내 취소 요청 시)
+PENDING   → CANCELLED   (결제 미완료로 만료 시)
+```
+
+## Domain Events
+
+<!-- 이 섹션에는 시스템에서 발행되는 도메인 이벤트 목록과 페이로드 요약을 적습니다 -->
+
+| Event | Produced By | Consumed By |
+|-------|-------------|-------------|
+| ClassOpened | Class | Enrollment |
+| ClassClosed | Class | Enrollment (대기열 정리) |
+| EnrollmentConfirmed | Enrollment | Class (정원 감소) |
+| EnrollmentCancelled | Enrollment | Class (정원 복구), Waitlist |
+
+## Invariants
+
+<!-- 이 섹션에는 시스템이 항상 유지해야 하는 불변식(비즈니스 규칙)을 적습니다 -->
+
+1. 수강 신청 시 잔여 정원 > 0 이어야 한다.
+2. 취소는 `paidAt` 으로부터 7일(168시간) 이내에만 가능하다.
+3. Creator 는 자신이 개설한 강의에 수강 신청할 수 없다.
+4. CLOSED 상태의 강의에는 새 수강 신청이 불가하다.
+
+## Glossary
+
+<!-- 이 섹션에는 도메인 용어 정의와 동의어·약어를 적습니다 -->
+
+| Term | Definition |
+|------|-----------|
+| Creator | 강의를 개설하는 사용자 역할 |
+| Classmate | 강의를 수강하는 사용자 역할 |
+| Capacity | 강의에 등록 가능한 최대 수강생 수 |
+| Waitlist | 정원 초과 시 대기 중인 수강 신청 목록 |
+| Cancellation Window | paidAt 기준 7일 이내의 취소 가능 기간 |

@@ -1,0 +1,38 @@
+# Claude Code: per-developer / ephemeral state
+.claude/agent-memory/
+.claude/worktrees/
+.claude/reports/
+.claude/settings.local.json
+
+# IDE — IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# IDE — VS Code
+.vscode/
+*.code-workspace
+
+# OS noise
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Build artifacts (defense in depth — live-class also ignores these inside itself)
+build/
+target/
+*.jar
+*.war
+
+# Gradle
+.gradle/
+
+# Logs
+*.log
+*.log.*
+logs/

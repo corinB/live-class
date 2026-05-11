@@ -1,0 +1,35 @@
+# Spring Boot 애플리케이션을 위한 2단계 멀티스테이지 Dockerfile — Gradle 빌더와 JRE 런타임으로 구성된다
+
+# ---- Stage 1: Build ----
+FROM eclipse-temurin:21-jdk AS builder
+
+WORKDIR /workspace
+
+# 의존성 캐시 레이어: Gradle wrapper와 빌드 파일만 먼저 복사
+COPY gradlew gradlew
+COPY gradle gradle
+COPY build.gradle settings.gradle ./
+COPY gradle.properties ./
+
+RUN chmod +x gradlew && ./gradlew dependencies --no-daemon 2>/dev/null || true
+
+# 소스 코드 복사 및 빌드
+COPY src src
+
+RUN ./gradlew bootJar --no-daemon -x test
+
+# ---- Stage 2: Runtime ----
+FROM eclipse-temurin:21-jre
+
+WORKDIR /app
+
+# 빌드 결과물 복사
+COPY --from=builder /workspace/build/libs/*.jar app.jar
+
+# 비루트 사용자로 실행
+RUN addgroup --system spring && adduser --system spring --ingroup spring
+USER spring:spring
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-Dfile.encoding=UTF-8", "-jar", "app.jar"]

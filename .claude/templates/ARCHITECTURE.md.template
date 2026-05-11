@@ -1,0 +1,100 @@
+<!-- Live Class 아키텍처 설계 템플릿 — 정원 레이스 컨디션·Redisson 분산 락·캐싱 전략·장애 시나리오를 기술한다 -->
+---
+status: draft
+owner: <fill at use time>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+---
+
+# ARCHITECTURE.md — Live Class Concurrency & Infrastructure Design
+
+## Concurrency Scenarios
+
+<!-- 이 섹션에는 동시성 문제가 발생할 수 있는 시나리오와 재현 조건을 적습니다 -->
+
+### Scenario 1: Last-Seat Race Condition
+
+여러 Classmate가 동시에 마지막 남은 좌석에 수강 신청하는 경우, 정원 초과 발생 가능.
+
+- 재현 조건: 잔여 정원 = 1, 동시 요청 N > 1
+- 위험 수준: HIGH — 데이터 정합성 직접 훼손
+
+### Scenario 2: 7-Day Cancellation Window Enforcement
+
+취소 요청 시각이 정확히 경계(168시간)에 걸쳐 있을 때 타임존·클럭 드리프트로 인한 경계 판단 오류.
+
+- 재현 조건: `paidAt + 7d ≈ now` (±초 단위 오차)
+- 위험 수준: MEDIUM — 사용자 경험 및 계약 분쟁 가능
+
+## Strategy Comparison
+
+<!-- 이 섹션에는 동시성 해결 전략별 장단점 비교표를 적습니다 -->
+
+| Strategy | Pros | Cons | Fit |
+|----------|------|------|-----|
+| DB Pessimistic Lock (`SELECT FOR UPDATE`) | 구현 단순, 트랜잭션 보장 | 단일 노드 병목, 긴 락 홀딩 | 소규모 단일 인스턴스 |
+| Redisson Distributed Lock | 분산 환경 지원, TTL 설정 가능 | Redis 가용성 의존 | 다중 인스턴스 운영 |
+| Redis Lua Script (CAS) | 원자적 연산, 락 없음 | 스크립트 복잡도 높음, 롤백 어려움 | 고성능 카운터 |
+
+## Chosen Approach
+
+<!-- 이 섹션에는 선택한 동시성 전략과 근거를 적습니다 -->
+
+**Redisson Distributed Lock** 을 채택한다.
+
+- 다중 인스턴스 수평 확장 대비.
+- `RLock.tryLock(waitTime=1s, leaseTime=5s)` 설정으로 데드락 방지.
+- 락 키: `enrollment:class:{classId}`.
+- 취소 기간 경계 판단은 서버 UTC 기준 `paidAt.plusHours(168).isBefore(Instant.now())` 로 단일화.
+
+## Redis Caching Layer
+
+<!-- 이 섹션에는 Redis 캐시 적용 대상과 TTL·무효화 전략을 적습니다 -->
+
+| Cache Key | TTL | Invalidation Trigger |
+|-----------|-----|---------------------|
+| `class:detail:{classId}` | 60s | ClassOpened, ClassClosed 이벤트 |
+| `class:capacity:{classId}` | 5s | EnrollmentConfirmed, EnrollmentCancelled 이벤트 |
+| `user:role:{userId}` | 300s | 사용자 역할 변경 시 |
+
+## Request Flows
+
+<!-- 이 섹션에는 주요 API 경로의 시퀀스 다이어그램 또는 단계별 흐름을 적습니다 -->
+
+### Enrollment Request Flow
+
+```
+Client → API → [Redisson Lock acquire]
+              → Check capacity (Redis cache)
+              → BEGIN TX
+                → INSERT enrollment (PENDING)
+                → UPDATE class.remaining_capacity
+              → COMMIT TX
+              → Publish EnrollmentConfirmed event
+              → [Redisson Lock release]
+              → Return 201 Created
+```
+
+### Cancellation Flow
+
+```
+Client → API → Load enrollment
+             → Assert status == CONFIRMED
+             → Assert now < paidAt + 168h
+             → BEGIN TX
+               → UPDATE enrollment.status = CANCELLED
+               → UPDATE class.remaining_capacity + 1
+             → COMMIT TX
+             → Publish EnrollmentCancelled event
+             → Return 200 OK
+```
+
+## Failure Modes
+
+<!-- 이 섹션에는 예상 가능한 장애 유형과 대응 전략을 적습니다 -->
+
+| Failure | Impact | Mitigation |
+|---------|--------|-----------|
+| Redis 다운 | Redisson 락 획득 불가 → 수강 신청 불가 | Redis Sentinel / Cluster 구성, 또는 DB 락으로 폴백 |
+| 락 TTL 만료 중 서버 크래시 | 잠금 자동 해제 → 이중 신청 가능성 | 짧은 leaseTime + idempotency key로 중복 방지 |
+| 네트워크 파티션 | 분산 락 획득 불확정 | RedLock 알고리즘 적용 고려 |

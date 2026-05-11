@@ -1,0 +1,53 @@
+# Live Class 로컬 개발 환경 docker-compose 템플릿 — app·postgres·redis 서비스를 정의한다
+version: "3.9"
+
+services:
+  # Spring Boot 애플리케이션 서비스
+  app:
+    build:
+      context: ./live-class
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/liveclass
+      SPRING_DATASOURCE_USERNAME: liveclass
+      SPRING_DATASOURCE_PASSWORD: liveclass
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # PostgreSQL 데이터베이스 서비스
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: liveclass
+      POSTGRES_USER: liveclass
+      POSTGRES_PASSWORD: liveclass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liveclass -d liveclass"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis 캐시 및 분산 락 서비스
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
