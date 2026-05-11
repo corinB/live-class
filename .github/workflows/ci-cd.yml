@@ -92,15 +92,39 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: SSH deploy
-        uses: appleboy/ssh-action@v1
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Sync compose files to EC2
+        uses: appleboy/scp-action@v0.1.7
         with:
           host:     ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key:      ${{ secrets.EC2_SSH_KEY }}
+          source:   "docker-compose.yml,front/index.html"
+          target:   "/home/ubuntu/live-class/"
+          overwrite: true
+
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host:        ${{ secrets.EC2_HOST }}
+          username:    ${{ secrets.EC2_USER }}
+          key:         ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
           script: |
             cd ~/live-class
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
             docker compose pull
             docker compose --profile db --profile redis --profile back --profile front up -d
             docker image prune -f
+            sleep 15
+            RUNNING=$(docker compose --profile db --profile redis --profile back --profile front ps --status running --format '{{.Name}}' | wc -l)
+            EXPECTED=4
+            echo "Running containers: $RUNNING / $EXPECTED"
+            docker compose --profile db --profile redis --profile back --profile front ps
+            if [ "$RUNNING" -lt "$EXPECTED" ]; then
+              echo "::error::Expected $EXPECTED containers running, found $RUNNING"
+              docker compose --profile db --profile redis --profile back --profile front logs --tail=50
+              exit 1
+            fi
