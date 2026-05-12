@@ -6,8 +6,26 @@ name: CI/CD
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'plan/**'
+      - 'reports/**'
+      - '.claude/**'
+      - '.gitignore'
+      - '.claudeignore'
+      - '.gitattributes'
+      - 'LICENSE'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'plan/**'
+      - 'reports/**'
+      - '.claude/**'
+      - '.gitignore'
+      - '.claudeignore'
+      - '.gitattributes'
+      - 'LICENSE'
 
 jobs:
 
