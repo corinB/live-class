@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -60,7 +61,9 @@ class ClassControllerTest {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ClassController(classApplicationService))
                 .setControllerAdvice(new GlobalExceptionHandler())
-                .setCustomArgumentResolvers(new CurrentUserArgumentResolver())
+                .setCustomArgumentResolvers(
+                        new CurrentUserArgumentResolver(),
+                        new PageableHandlerMethodArgumentResolver())
                 .build();
     }
 
