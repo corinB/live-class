@@ -82,8 +82,8 @@ class ClassRepositoryIntegrationTest {
     void version_startsAtZeroAndIncrementsOnSave() {
         UUID creatorId = UUID.randomUUID();
         Class clazz = buildDraftClass(creatorId);
-        // version field is set to 0L in draft() factory
-        assertThat(clazz.getVersion()).isEqualTo(0L);
+        // version stays null until persist so Spring Data treats the entity as new
+        assertThat(clazz.getVersion()).isNull();
 
         Class saved = classRepository.saveAndFlush(clazz);
         assertThat(saved.getVersion()).isEqualTo(0L);
