@@ -1,0 +1,26 @@
+# 테스트 클래스패스에 우선 적용되어 PostgreSQL/Redis 외부 의존을 in-memory H2 / 임베디드 환경으로 대체하는 테스트 전용 설정
+spring:
+  datasource:
+    url: jdbc:h2:mem:liveclass-test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+    show-sql: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 200ms
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
