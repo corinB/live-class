@@ -121,6 +121,15 @@ public class Class {
         this.updatedAt = now;
     }
 
+    public void autoClose(Instant now) {
+        if (this.status != ClassStatus.OPEN) {
+            throw new IllegalStateTransitionException(
+                    "autoClose requires OPEN, but was " + this.status);
+        }
+        this.status = ClassStatus.CLOSED;
+        this.updatedAt = now;
+    }
+
     public void changeCapacity(Capacity newCapacity, UserId requester, Instant now) {
         checkCreator(requester);
         if (this.status != ClassStatus.DRAFT) {

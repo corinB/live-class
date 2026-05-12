@@ -20,6 +20,9 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 200ms   # Lettuce commandTimeout — ARCHITECTURE §4.4 fail-closed 정책에 맞춰 짧게
+  quartz:
+    job-store-type: memory
+    auto-startup: true
 
 springdoc:
   api-docs:
