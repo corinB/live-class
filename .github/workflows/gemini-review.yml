@@ -37,9 +37,11 @@ jobs:
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
           git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
           RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/**' ':(exclude)plan/**' ':(exclude)reports/**' || true)
-          TOTAL_CHARS=$(printf '%s' "$RAW_DIFF" | wc -c)
+          # 이전 구현은 `printf '%s' "$RAW_DIFF" | wc -c` 였으나, `set -o pipefail` + 큰 RAW_DIFF 조합에서 printf 가 SIGPIPE 를 받아 워크플로 자체가 실패하는 케이스가 PR #1 에서 발견됨. bash 내장 `${#var}` 로 pipe 없이 길이 측정해 우회.
+          TOTAL_CHARS=${#RAW_DIFF}
           if [ "$TOTAL_CHARS" -gt 50000 ]; then
-            DIFF=$(printf '%s' "$RAW_DIFF" | head -c 50000)
+            # bash native substring expansion 으로 head -c 50000 의 SIGPIPE 위험도 회피.
+            DIFF=${RAW_DIFF:0:50000}
             TRUNCATED=true
           else
             DIFF="$RAW_DIFF"
