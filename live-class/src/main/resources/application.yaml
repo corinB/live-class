@@ -19,7 +19,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      timeout: 2000ms
+      timeout: 200ms   # Lettuce commandTimeout — ARCHITECTURE §4.4 fail-closed 정책에 맞춰 짧게
 
 springdoc:
   api-docs:
