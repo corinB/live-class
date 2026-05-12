@@ -1,0 +1,5 @@
+# Task 16 전용 테스트 프로파일 — Quartz 스케줄러 활성화, PostgreSQL/Redis Testcontainers 사용
+spring:
+  quartz:
+    job-store-type: memory
+    auto-startup: true

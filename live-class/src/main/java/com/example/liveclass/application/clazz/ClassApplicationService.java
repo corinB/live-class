@@ -104,6 +104,16 @@ public class ClassApplicationService {
         throw new ConcurrentClassUpdateException();
     }
 
+    @Transactional
+    public void autoClose(UUID classId, Instant now) {
+        Class c = classRepository.findById(classId)
+                .orElseThrow(ClassNotFoundException::new);
+        c.autoClose(now);
+        classRepository.save(c);
+        eventPublisher.publishEvent(
+                new ClassClosedEvent(ClassId.of(classId), null, now));
+    }
+
     @Transactional(readOnly = true)
     public Class getById(UUID classId) {
         return classRepository.findById(classId)
