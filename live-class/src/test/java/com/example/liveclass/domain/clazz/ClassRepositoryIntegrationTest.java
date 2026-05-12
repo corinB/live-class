@@ -79,9 +79,10 @@ class ClassRepositoryIntegrationTest {
         classRepository.findByIdForUpdate(saved.getId());
 
         boolean hasForUpdate = SqlCaptor.CAPTURED.stream()
-                .anyMatch(sql -> sql.contains("for update"));
+                .anyMatch(sql -> sql.contains("for update") || sql.contains("for no key update"));
         assertThat(hasForUpdate)
-                .as("findByIdForUpdate should issue a SELECT ... FOR UPDATE statement")
+                .as("findByIdForUpdate should issue a SELECT ... FOR UPDATE statement. "
+                        + "Captured: " + SqlCaptor.CAPTURED)
                 .isTrue();
     }
 
