@@ -94,7 +94,10 @@ public class Class {
         clazz.creatorId = creator.value();
         clazz.createdAt = now;
         clazz.updatedAt = now;
-        clazz.version = 0L;
+        // version stays null until Hibernate assigns 0L on @PrePersist.
+        // Spring Data JPA's save() uses null @Version as the isNew() signal — setting it
+        // explicitly to 0L makes save() take the merge() path on first call, which
+        // issues UPDATE (0 rows) and throws StaleObjectStateException.
         return clazz;
     }
 
