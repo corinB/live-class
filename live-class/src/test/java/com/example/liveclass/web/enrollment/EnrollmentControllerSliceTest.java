@@ -3,6 +3,7 @@ package com.example.liveclass.web.enrollment;
 
 import com.example.liveclass.application.enrollment.CreatorCannotEnrollException;
 import com.example.liveclass.application.enrollment.EnrollmentApplicationService;
+import com.example.liveclass.application.enrollment.EnrollmentQueryService;
 import com.example.liveclass.application.enrollment.MirrorUnavailableException;
 import com.example.liveclass.domain.enrollment.ClassNotOpenException;
 import com.example.liveclass.domain.enrollment.DuplicateEnrollmentException;
@@ -40,6 +41,9 @@ class EnrollmentControllerSliceTest {
     @Mock
     private EnrollmentApplicationService enrollmentApplicationService;
 
+    @Mock
+    private EnrollmentQueryService enrollmentQueryService;
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private static final UUID CLASSMATE_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -48,7 +52,7 @@ class EnrollmentControllerSliceTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new EnrollmentController(enrollmentApplicationService))
+                .standaloneSetup(new EnrollmentController(enrollmentApplicationService, enrollmentQueryService))
                 .addFilters(new MockUserFilter())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new CurrentUserArgumentResolver())
@@ -79,7 +83,7 @@ class EnrollmentControllerSliceTest {
     @Test
     void validRequest_pendingResult_returns201() throws Exception {
         EnrollmentResponse mockResp = new EnrollmentResponse(
-                UUID.randomUUID(), CLASS_ID, CLASSMATE_ID, EnrollmentStatus.PENDING, Instant.now());
+                UUID.randomUUID(), CLASS_ID, CLASSMATE_ID, EnrollmentStatus.PENDING, Instant.now(), null, null);
         when(enrollmentApplicationService.apply(eq(CLASSMATE_ID), eq(CLASS_ID), any(Instant.class)))
                 .thenReturn(mockResp);
 
@@ -95,7 +99,7 @@ class EnrollmentControllerSliceTest {
     @Test
     void validRequest_waitlistedResult_returns202() throws Exception {
         EnrollmentResponse mockResp = new EnrollmentResponse(
-                UUID.randomUUID(), CLASS_ID, CLASSMATE_ID, EnrollmentStatus.WAITLISTED, Instant.now());
+                UUID.randomUUID(), CLASS_ID, CLASSMATE_ID, EnrollmentStatus.WAITLISTED, Instant.now(), null, null);
         when(enrollmentApplicationService.apply(eq(CLASSMATE_ID), eq(CLASS_ID), any(Instant.class)))
                 .thenReturn(mockResp);
 

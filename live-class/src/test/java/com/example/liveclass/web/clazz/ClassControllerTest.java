@@ -2,6 +2,7 @@
 package com.example.liveclass.web.clazz;
 
 import com.example.liveclass.application.clazz.ClassApplicationService;
+import com.example.liveclass.application.enrollment.EnrollmentQueryService;
 import com.example.liveclass.domain.clazz.Capacity;
 import com.example.liveclass.domain.clazz.Class;
 import com.example.liveclass.domain.clazz.ClassNotFoundException;
@@ -52,6 +53,9 @@ class ClassControllerTest {
     @Mock
     private ClassApplicationService classApplicationService;
 
+    @Mock
+    private EnrollmentQueryService enrollmentQueryService;
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private static final UUID CREATOR_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -59,7 +63,7 @@ class ClassControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ClassController(classApplicationService))
+                .standaloneSetup(new ClassController(classApplicationService, enrollmentQueryService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(
                         new CurrentUserArgumentResolver(),

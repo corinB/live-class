@@ -1,4 +1,4 @@
-// 수강신청 응답 DTO — Enrollment 엔티티를 직렬화 가능한 record 로 변환
+// 수강신청 응답 DTO — Enrollment 엔티티를 직렬화 가능한 record 로 변환 (POST 응답 + my-enrollments 항목 공용)
 package com.example.liveclass.web.enrollment.dto;
 
 import com.example.liveclass.domain.enrollment.Enrollment;
@@ -12,7 +12,9 @@ public record EnrollmentResponse(
         UUID classId,
         UUID classmateId,
         EnrollmentStatus status,
-        Instant appliedAt
+        Instant appliedAt,
+        Instant paidAt,
+        Instant cancelledAt
 ) {
     public static EnrollmentResponse from(Enrollment enrollment) {
         return new EnrollmentResponse(
@@ -20,7 +22,9 @@ public record EnrollmentResponse(
                 enrollment.getClassId(),
                 enrollment.getClassmateId(),
                 enrollment.getStatus(),
-                enrollment.getAppliedAt()
+                enrollment.getAppliedAt(),
+                enrollment.getPaidAt(),
+                enrollment.getCancelledAt()
         );
     }
 }

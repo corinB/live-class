@@ -2,6 +2,7 @@
 package com.example.liveclass.web.clazz;
 
 import com.example.liveclass.application.clazz.ClassApplicationService;
+import com.example.liveclass.application.enrollment.EnrollmentQueryService;
 import com.example.liveclass.domain.clazz.AccessDeniedDomainException;
 import com.example.liveclass.domain.clazz.Capacity;
 import com.example.liveclass.domain.clazz.Class;
@@ -45,6 +46,9 @@ class ClassControllerSliceTest {
     @Mock
     private ClassApplicationService classApplicationService;
 
+    @Mock
+    private EnrollmentQueryService enrollmentQueryService;
+
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private static final UUID CREATOR_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -53,7 +57,7 @@ class ClassControllerSliceTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ClassController(classApplicationService))
+                .standaloneSetup(new ClassController(classApplicationService, enrollmentQueryService))
                 .addFilters(new MockUserFilter())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(

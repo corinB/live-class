@@ -71,4 +71,29 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, UUID> {
     List<Enrollment> findByClassIdAndStatusInOrderByAppliedAtAsc(
             UUID classId,
             Collection<EnrollmentStatus> statuses);
+
+    /**
+     * Creator's confirmed student list — ordered by paidAt ascending.
+     * Used by EnrollmentQueryService.listStudents().
+     */
+    @Query("select e from Enrollment e " +
+           "where e.classId = :classId " +
+           "and e.status = com.example.liveclass.domain.enrollment.EnrollmentStatus.CONFIRMED " +
+           "order by e.paidAt asc")
+    Page<Enrollment> findConfirmedByClassId(@Param("classId") UUID classId, Pageable pageable);
+
+    /**
+     * Classmate's all enrollments — ordered by appliedAt descending (newest first).
+     * Used by EnrollmentQueryService.listMyEnrollments() when no status filter.
+     */
+    Page<Enrollment> findByClassmateIdOrderByAppliedAtDesc(UUID classmateId, Pageable pageable);
+
+    /**
+     * Classmate's enrollments filtered by status set — ordered by appliedAt descending.
+     * Used by EnrollmentQueryService.listMyEnrollments() when status filter provided.
+     */
+    Page<Enrollment> findByClassmateIdAndStatusInOrderByAppliedAtDesc(
+            UUID classmateId,
+            Collection<EnrollmentStatus> statuses,
+            Pageable pageable);
 }
