@@ -1,10 +1,10 @@
-<!-- PR URL will be filled after push -->
+<!-- PR: https://github.com/corinB/live-class/pull/15 -->
 ---
 status: complete
 owner: blueprint-executor-worker
 created: 2026-05-12
 updated: 2026-05-12
-pr: TBD
+pr: https://github.com/corinB/live-class/pull/15
 ---
 
 # Report: Task 06 — Class Repository Integration Tests + Controller Slice Tests
