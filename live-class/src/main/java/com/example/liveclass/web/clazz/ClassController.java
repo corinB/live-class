@@ -7,6 +7,7 @@ import com.example.liveclass.web.auth.CurrentUserId;
 import com.example.liveclass.web.clazz.dto.ChangeStatusRequest;
 import com.example.liveclass.web.clazz.dto.ClassResponse;
 import com.example.liveclass.web.clazz.dto.CreateClassRequest;
+import com.example.liveclass.web.clazz.dto.PagedClassResponse;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -52,7 +53,9 @@ public class ClassController {
     }
 
     @GetMapping
-    public Page<ClassResponse> listOpen(Pageable pageable) {
-        return classApplicationService.listOpenClasses(pageable).map(ClassResponse::from);
+    public PagedClassResponse listOpen(Pageable pageable) {
+        // Spring Boot 4 가 PageImpl 직접 직렬화를 거부하므로 명시적 DTO wrapper 로 반환.
+        Page<ClassResponse> page = classApplicationService.listOpenClasses(pageable).map(ClassResponse::from);
+        return PagedClassResponse.from(page);
     }
 }
