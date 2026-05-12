@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
@@ -15,7 +16,11 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "enrollments")
+@Table(name = "enrollments", indexes = {
+        @Index(name = "idx_enroll_classid_appliedat", columnList = "class_id, applied_at"),
+        @Index(name = "idx_enroll_classmate", columnList = "classmate_id"),
+        @Index(name = "idx_enroll_classid_status", columnList = "class_id, status")
+})
 public class Enrollment {
 
     @Id
