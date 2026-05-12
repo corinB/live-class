@@ -4,6 +4,15 @@ name: Gemini AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths-ignore:
+      - '**/*.md'
+      - 'plan/**'
+      - 'reports/**'
+      - '.claude/**'
+      - '.gitignore'
+      - '.claudeignore'
+      - '.gitattributes'
+      - 'LICENSE'
 
 permissions:
   contents: read
