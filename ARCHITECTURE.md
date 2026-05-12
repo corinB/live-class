@@ -15,7 +15,7 @@ companion: DOCS.md
 2. [Concurrency Scenarios](#2-concurrency-scenarios)
 3. [Strategy Comparison](#3-strategy-comparison)
 4. [Chosen Approach](#4-chosen-approach)
-5. [Redis Caching & Mirror Layer](#5-redis-caching--mirror-layer)
+5. [Redis Mirror Layer](#5-redis-mirror-layer-cache-계층-미사용--pre-flight-5-결정)
 6. [End-to-End Request Flows](#6-end-to-end-request-flows)
 7. [Failure Modes & Recovery](#7-failure-modes--recovery)
 8. [Scheduled Jobs (Quartz)](#8-scheduled-jobs-quartz)
@@ -156,27 +156,25 @@ DOCS.md 가 정의한 도메인 규칙에 비춰 본 시스템이 반드시 정�
 
 ---
 
-## 5. Redis Caching & Mirror Layer
+## 5. Redis Mirror Layer (Cache 계층 미사용 — Pre-flight 5 결정)
 
-Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
+Redis 는 본 시스템에서 **Mirror (Aggregate Index)** 한 가지 역할만 한다. Spring Cache (`@Cacheable` + `RedisCacheManager`) 는 사용하지 않는다 (Pre-flight 5 결정 — ZSET mirror 가 결정 경로 캐시 역할을 이미 하므로 별도 metadata cache 의 ROI 가 단일 EC2 채용 과제 트래픽에서 무시 가능).
 
 | 역할 | 정의 | 예 |
 |------|------|----|
-| **Mirror (Aggregate Index)** | DB 의 Enrollment 활성 신청 집합을 ZSET 으로 미러링. **결정의 1차 게이트**. 데이터 유실 시 부팅 reconcile 로 복구. | `enrolled:{classId}` (ZSET), `waitlist:{classId}` (ZSET) |
-| **Cache (Read-aside Snapshot)** | DB 조회 결과의 스냅샷. **결정에 사용하지 않음**. 데이터 유실 시 다음 조회 시 자연 재계산. | `class:detail:{classId}`, `class:enrolledCount:{classId}`, `class:status:{classId}` |
-
-두 역할은 **운영상 등급이 다르다**. Mirror 의 정합성 위반은 즉시 알림 대상이지만 Cache 의 stale 은 정책 수용 범위 안의 정상 동작이다.
+| **Mirror (Aggregate Index)** | DB 의 Enrollment 활성 신청 집합을 ZSET 으로 미러링 + `Class.status` 를 Lua 입력용 String 으로 미러링. **결정의 1차 게이트**. 데이터 유실 시 부팅 reconcile 로 복구. | `enrolled:{classId}` (ZSET), `waitlist:{classId}` (ZSET), `class:status:{classId}` (String) |
+| ~~Cache (Read-aside Snapshot)~~ | **out-of-scope, Pre-flight 5**. Spring `@Cacheable` / `RedisCacheManager` / `@EnableCaching` 미사용. metadata 조회는 매 호출 DB 직접. | — |
 
 ### 5.1 데이터 분류
 
 | 데이터 | 분류 | 이유 |
 |--------|------|------|
 | 활성 Enrollment 집합 (`PENDING + CONFIRMED + WAITLISTED`) | **Mirror** | §2.1·§2.2 결정의 입력. Lua 가 직접 read-modify-write. |
-| `Class` 메타데이터(title, description, price, period, status) | **Cache** | 읽기 비율이 압도적으로 높고 변경 빈도가 낮다. |
-| `Class.status` 단독 미러 (`class:status:{id}`) | **Cache (특수 단축형)** | `enrollment_apply.lua` 가 status 검사용으로 GET. miss 시 application service 가 DB → mirror 채움. |
-| 현재 enrolled count 표시용 | **Cache** | UX 표시. 결정에 사용 금지. |
+| `Class.status` 단독 미러 (`class:status:{id}`) | **Mirror (Lua 입력)** | `enrollment_apply.lua` 가 status 검사용으로 GET. application service 가 DB 상태 전이 성공 후 SET 으로 갱신. **`@Cacheable` 이 아닌 직접 `redisTemplate.opsForValue().set(...)`**. |
+| `Class` 메타데이터(title, description, price, period) | **DB 직접** (out-of-scope, Pre-flight 5) | 매 조회 DB. 단일 인스턴스 채용 과제 트래픽에서 perf 무시 가능. production 에서는 RPS·hit-rate·TTL 측정 후 cache 도입. |
+| 현재 enrolled count 표시용 | **(out-of-scope, Pre-flight 5)** | 표시 자체를 구현 안 함. 필요 시 `ZCARD enrolled:{id}` 또는 DB COUNT 매번. |
 | `Enrollment` 개별 row | **사용하지 않음** | 사용자 본인 데이터, 캐시 적중률 낮음. |
-| 대기열 순위 | **Mirror 의 부산물** | `ZRANK waitlist:{classId} {classmateId}` 로 조회 가능. 별도 캐시 불요. |
+| 대기열 순위 | **Mirror 의 부산물** | `ZRANK waitlist:{classId} {classmateId}` 로 조회 가능. |
 
 ### 5.2 Key 네이밍 컨벤션
 
@@ -184,10 +182,10 @@ Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
 |-----|------|-----|------|------------|
 | `enrolled:{classId}` | ZSET | 영구 (재구성으로 보정) | Mirror | `enrollment_apply.lua`, `enrollment_cancel_promote.lua`, reconcile |
 | `waitlist:{classId}` | ZSET | 영구 | Mirror | 위와 동일 |
-| `class:status:{classId}` | String | 300s | Cache (Lua 입력) | Class 상태 전이 application service (수동 + Quartz 자동) |
-| `class:detail:{classId}` | String (JSON) | 300s | Cache | `@Cacheable` 인터셉터 |
-| `class:enrolledCount:{classId}` | String (int) | 60s | Cache | 표시용 |
-| ~~`lock:cache:class:{classId}:detail`~~ | (사용 안 함) | — | — | Pre-flight 4 결정으로 Redisson 의존성 제거. 다중 인스턴스 확장 시 분산 single-flight 재도입 검토 (§5.5). |
+| `class:status:{classId}` | String | 300s | Mirror (Lua 입력) | Class 상태 전이 application service (수동 + Quartz 자동) — `redisTemplate.opsForValue().set` 직접 호출 |
+| ~~`class:detail:{classId}`~~ | (사용 안 함) | — | — | Pre-flight 5 결정으로 Spring Cache 제거. metadata 는 DB 직접. |
+| ~~`class:enrolledCount:{classId}`~~ | (사용 안 함) | — | — | Pre-flight 5 결정. 표시용 카운터 자체 out-of-scope. |
+| ~~`lock:cache:class:{classId}:detail`~~ | (사용 안 함) | — | — | Pre-flight 4 결정으로 Redisson 의존성 제거. |
 
 키는 모두 소문자, `:` 구분자, `{변수}` 는 UUID 문자열 형태로 통일한다.
 
@@ -195,28 +193,19 @@ Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
 
 **Mirror** — Lua 가 직접 갱신한다. 별도 무효화 이벤트가 없다(Lua 가 곧 갱신 자체).
 
-**Cache** — Cache-aside + 도메인 이벤트 기반 invalidation. `@TransactionalEventListener(phase = AFTER_COMMIT)` 단계에서 실행한다.
+**`class:status:{classId}` 미러** — Class 상태 전이 application service 가 DB 커밋 성공 후 `AFTER_COMMIT` 단계에서 `redisTemplate.opsForValue().set(...)` 로 갱신. miss 시 `enrollment_apply.lua` 가 `CLASS_NOT_FOUND` 를 반환 → application service 가 DB fallback + mirror 채우고 Lua 재시도.
 
-| 트리거 이벤트 | 무효화 대상 |
-|------------|------------|
-| `ClassOpenedEvent`, `ClassClosedEvent` | `class:detail:{classId}` DEL + `class:status:{classId}` SET(new status) |
-| `Class.changeCapacity` (DRAFT only) | `class:detail:{classId}` DEL |
-| `EnrollmentCreatedEvent` | `class:enrolledCount:{classId}` DEL |
-| `EnrollmentConfirmedEvent` | `class:enrolledCount:{classId}` DEL |
-| `EnrollmentCancelledEvent` | `class:enrolledCount:{classId}` DEL |
-| `WaitlistPromotedEvent` | `class:enrolledCount:{classId}` DEL |
+**Spring Cache 이벤트 핸들러** — 사용하지 않음 (Pre-flight 5 결정으로 `EnrollmentCacheInvalidator` / `ClassCacheInvalidator` 등 모든 cache evict 리스너 미구현).
 
 ### 5.4 Stale Read 정책
 
-- **강의 상세 조회** — 최대 300초 stale 허용.
-- **enrolledCount** — 최대 60초 stale 허용. 표시용.
-- **신청 가능 여부 판정** — 캐시를 **신뢰하지 않는다**. UI 가 "신청 가능" 으로 보였더라도 실제 결정은 `enrollment_apply.lua` 가 한다.
+- **강의 상세 조회** — 매 호출 DB 직접. stale 자체가 정의 불가 (캐시 없음).
+- **enrolledCount 표시** — out-of-scope (필요 시 `ZCARD` 또는 DB COUNT 매번).
+- **신청 가능 여부 판정** — UI 표시가 어떻든 실제 결정은 `enrollment_apply.lua` 가 한다.
 
 ### 5.5 Cache Stampede 방어
 
-- 인기 강의 캐시가 동시에 만료되면 같은 키에 대해 다수 요청이 DB 로 몰린다.
-- **본 시스템은 단일 JVM 가정**이므로 캐시 미스 시 `synchronized` 블록 또는 `ConcurrentHashMap.computeIfAbsent` 같은 JVM-내 락으로 single-flight 처리. 락 비용이 mutex 수준이라 cache miss 가 동시에 들어와도 DB 호출은 1회로 직렬화된다.
-- 다중 인스턴스 / cluster 확장 시점에는 Redis SETNX (`SET key NX EX 1s`) 기반 분산 single-flight 또는 Redisson `RLock` 도입 검토 — **본 채용 과제 범위 외 (Pre-flight 4 결정)**. Day 1 초안의 Redisson 의존성은 의도적으로 제거.
+본 시스템에서는 Spring Cache 를 사용하지 않으므로 cache stampede 가 정의 불가. 다중 인스턴스 / 고트래픽 환경으로 확장 시점에 cache 계층 도입 + JVM-내 single-flight (`synchronized` / `ConcurrentHashMap.computeIfAbsent`) 또는 분산 single-flight (Redis SETNX / Redisson RLock) 를 같이 검토 — **본 채용 과제 범위 외 (Pre-flight 4·5 결정)**.
 
 ---
 
@@ -233,7 +222,7 @@ sequenceDiagram
     participant Lua as Redis (enrollment_apply.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
-    participant Cache as Redis Cache
+    participant Mirror as Redis (class:status mirror)
 
     C->>API: POST /enrollments {classId} (X-User-Id)
     API->>App: apply(classId, classmateId)
@@ -248,7 +237,7 @@ sequenceDiagram
     else result == CLASS_NOT_FOUND
         App->>DB: SELECT * FROM class WHERE id=?
         alt class exists & OPEN
-            App->>Cache: SET class:status:{c} = "OPEN"
+            App->>Mirror: SET class:status:{c} = "OPEN"
             App->>Lua: 재시도 1회 (동일 KEYS/ARGV)
         else 아예 존재 안 함
             App-->>API: 404
@@ -263,7 +252,6 @@ sequenceDiagram
         alt INSERT 성공
             note right of App: TX commit
             App->>Bus: EnrollmentCreatedEvent(status) [AFTER_COMMIT]
-            Bus->>Cache: DEL class:enrolledCount:{c}
             App-->>API: EnrollmentDto(result)
             alt result == PENDING
                 API-->>C: 201 Created
@@ -281,9 +269,9 @@ sequenceDiagram
 핵심 포인트.
 
 - (3) Lua 한 번의 호출에 §2.1 의 race 결정과 §2.4 의 status 검사가 모두 들어 있다. application service 는 Lua 결정을 받아 DB 영속화만 담당.
-- (10–11) `CLASS_NOT_FOUND` 는 `class:status` mirror 미존재 케이스. application service 가 DB 로 fallback 후 Lua 재시도. 처음 신청 또는 캐시 TTL 만료 직후에만 발생.
+- (10–11) `CLASS_NOT_FOUND` 는 `class:status` mirror 미존재 케이스. application service 가 DB 로 fallback 후 mirror 채움 (`opsForValue().set`) + Lua 재시도. mirror TTL 300s 만료 직후에만 발생.
 - (15) Lua 성공 후 DB INSERT 실패 시 즉시 보상 Lua 호출. 보상 Lua 자체가 또 실패하면 부팅 시 reconcile 로 정정.
-- (16–18) AFTER_COMMIT 단계에서 도메인 이벤트 + 캐시 evict. ZSET 미러는 Lua 가 이미 갱신해두었으므로 별도 처리 불요.
+- (16–17) AFTER_COMMIT 단계에서 도메인 이벤트만 발행. **Spring Cache 미사용 (Pre-flight 5) 이므로 cache evict 핸들러 없음**. ZSET 미러는 Lua 가 이미 갱신해두었으므로 별도 처리 불요.
 
 ### 6.2 `POST /enrollments/{id}/confirm-payment` — mock 결제
 
@@ -336,7 +324,6 @@ sequenceDiagram
     participant Lua as Redis (enrollment_cancel_promote.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
-    participant Cache as Redis Cache
 
     C->>API: DELETE /enrollments/{id}
     API->>App: cancel(enrollmentId, classmateId, now)
@@ -373,7 +360,6 @@ sequenceDiagram
             alt promoted 존재
                 App->>Bus: WaitlistPromotedEvent [AFTER_COMMIT]
             end
-            Bus->>Cache: DEL class:enrolledCount:{c}
             App-->>API: EnrollmentDto(CANCELLED)
             API-->>C: 200 OK
         end

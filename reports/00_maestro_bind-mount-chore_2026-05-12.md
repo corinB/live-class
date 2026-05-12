@@ -39,4 +39,4 @@ updated: 2026-05-12
 
 - [x] (검증) CI green + EC2 4/4 컨테이너 running 확인 — 완료.
 - [ ] 추후 EC2 에서 dev DB 데이터 보존이 필요해지면 production-quality persistent volume 전략으로 재전환 검토 (Out-of-scope of hiring assignment).
-- [ ] Pre-flight 1 의 chore commit 이 main 직접 push 형태 — 본 채용 과제에서는 일회성으로 수용했으나 향후 모든 chore 도 PR 경유로 일관화 검토 (CONTRIBUTING.md §1 "main 에 직접 push 금지" 규정을 사실상 위반).
+- [x] Pre-flight 1 의 chore commit 이 main 직접 push 형태 — 본 채용 과제에서는 일회성으로 수용. **resolved (Pre-flight 5 시점)**: Pre-flight 2/3/4/5 모두 PR 경유 (#1, #3, #4, #5, #6, #7) 로 일관화 완료. Pre-flight 1 만 예외로 남으며 향후 chore 는 항상 PR 경유.

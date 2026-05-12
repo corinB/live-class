@@ -48,6 +48,6 @@ updated: 2026-05-12
 ## Follow-ups
 
 - [x] (검증) PR #1 squash merge → main `f1585b5` — 완료.
-- [ ] Gemini review 워크플로의 `printf|wc` broken-pipe 이슈 — `fix(ci)` 별도 PR 로 처리. 50k 자 미만 PR 에서는 정상 동작하므로 task 02 ~ 14 워커 PR 들에 영향 없을 가능성 높음.
-- [ ] Pre-flight 1 의 main 직접 push 와 동일하게 본 PR 도 CONTRIBUTING.md §1 의 "PR 경유" 정책에 맞춰 PR 으로 처리됨 — Pre-flight 1 은 일회성 예외, 향후 모든 chore 는 PR 경유 일관 유지.
-- [ ] task 02 부터 워커는 갱신된 work-order 를 읽고 Lua-first 코드를 작성한다.
+- [x] Gemini review 워크플로의 `printf|wc` broken-pipe 이슈 — **resolved**: PR #5 (`2e857ff`) 로 `${#var}` + `${var:0:N}` bash 내장으로 교체, pipe 자체 제거.
+- [x] Pre-flight 1 의 main 직접 push 와 동일하게 본 PR 도 CONTRIBUTING.md §1 의 "PR 경유" 정책에 맞춰 PR 으로 처리됨 — **resolved**: PR #1 squash merge 로 일관화 완료.
+- [x] task 02 부터 워커는 갱신된 work-order 를 읽고 Lua-first 코드를 작성한다. — **resolved**: PR #7 (`cda3731`) 로 task 02 머지, Lua RedisScript 빈 3개 등록 완료. (Pre-flight 5 에서 Cache 도 추가 제거.)
