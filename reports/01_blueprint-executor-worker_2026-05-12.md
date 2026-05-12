@@ -48,6 +48,6 @@ updated: 2026-05-12
 
 - [x] (검증) PR #2 squash merge → main `bdfb86b` — 완료. CI Build & Test SUCCESS, gemini-review SUCCESS.
 - [x] (검증) `plan/before/01_*.md` → `plan/after/` 이동 commit `a2f60de` — 완료.
-- [ ] task 02 worker prompt 에 "Spring Boot 4: ObjectMapper 빈 자동 등록 X — 직접 생성하거나 `@Bean` 등록 필요" 주의 추가.
+- [x] task 02 worker prompt 에 "Spring Boot 4: ObjectMapper 빈 자동 등록 X — 직접 생성하거나 `@Bean` 등록 필요" 주의 추가. — **resolved**: task 02 dispatch prompt 의 implementation hint §6 에 명시. PR #7 worker 가 이를 읽고 작업 진행.
 - [ ] (잠재적) `LiveClassApplicationTests` 가 `@SpringBootTest` 로 컨텍스트 로드를 요구하므로 향후 어떤 `@Configuration` 클래스든 의존성 누락 시 contextLoads 가 깨진다. 모든 task 의 PR CI 에서 이 테스트가 1차 fail-fast 안전망 역할.
 - [ ] (잠재적) ObjectMapper 가 static 으로 한 번 생성됨 — 향후 Java time API 직렬화 등 요구 시 task 02 단계에서 `@Bean ObjectMapper` 명시 등록 + JavaTimeModule 등록 필요.

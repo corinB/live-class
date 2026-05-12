@@ -51,6 +51,6 @@ PR: `feat(task-02): add Redis infra and Lua RedisScript beans` (#7, after fix-up
 - [ ] task 05 (Class service) — `@Cacheable` 사용 안 함. 매 조회 DB 직접 (Pre-flight 5).
 - [ ] task 09 (apply worker) — `enrollment_apply.lua` + `enrollment_compensate.lua` 본문 작성.
 - [ ] task 10 (cancel/promote) — `enrollment_cancel_promote.lua` 본문 작성.
-- [ ] ARCHITECTURE.md §5 의 Cache 섹션을 별도 chore PR 로 out-of-scope 명시 (본 task 02 PR 의 scope 밖).
-- [ ] plan/before/05·09·10·13 의 cache 관련 항목 정리 — task dispatch 시 정정.
+- [x] ARCHITECTURE.md §5 의 Cache 섹션을 별도 chore PR 로 out-of-scope 명시 — **resolved**: Pre-flight 5 chore PR 에서 §5 전체 재작성 (Mirror only), §5.1·§5.2·§5.3·§5.4·§5.5 본문 모두 Cache 미사용으로 일관.
+- [x] plan/before/05·09·10·13 의 cache 관련 항목 정리 — **resolved**: 같은 Pre-flight 5 chore PR 에서 `@Cacheable`/`CacheInvalidator`/`EnrollmentCacheInvalidator` 항목 모두 제거 또는 `ClassStatusMirrorListener` (직접 Redis SET) 로 대체.
 - [ ] CI 검증 — Testcontainers Redis Docker 환경에서 `RedisConfigTest` 통과 확인.

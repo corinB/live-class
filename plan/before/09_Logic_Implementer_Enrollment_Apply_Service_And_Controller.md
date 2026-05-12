@@ -8,7 +8,7 @@
     2. 반환값 `PENDING` / `WAITLISTED` 면 DB INSERT.
     3. 반환값 `DUPLICATE_ACTIVE` → 409. `CLASS_NOT_OPEN` → 409. `CLASS_NOT_FOUND` (mirror miss) → DB fallback + mirror 채움 + Lua 재시도 1회.
     4. DB INSERT 실패 시 즉시 `enrollment_compensate.lua` 호출하여 ZSET 갱신 되돌림.
-  - 이벤트 `EnrollmentCreatedEvent`가 `AFTER_COMMIT`에 발행되어 `class:enrolledCount` 캐시를 evict.
+  - 이벤트 `EnrollmentCreatedEvent`가 `AFTER_COMMIT` 에 발행된다. **Spring Cache 미사용 (Pre-flight 5) — cache evict 핸들러 없음.** 이벤트는 향후 read-model / 통계 / 알림 등 다른 listener 가 받을 수 있도록 발행만.
   - Creator 본인이 자기 강의에 신청 시 거부 (DOCS Invariant Enrollment §4). Lua 보다 먼저 application service 가 검사.
   - 트랜잭션 안에서 외부 호출 없음 (보상 윈도우 최소화). statement timeout 500ms.
   - Lua 호출이 Redis 연결 실패로 throw 하면 503 fail-closed (ARCHITECTURE §7.1).
@@ -58,7 +58,7 @@
     - `try { enrollmentRepository.save(e); } catch (DataIntegrityViolationException | RuntimeException ex) { mirrorService.compensateApply(classId, classmateId); throw mapDbException(ex); }`
     - `eventPublisher.publishEvent(new EnrollmentCreatedEvent(e.getId(), classId, classmateId, e.getStatus(), now));` (AFTER_COMMIT 리스너에서 캐시 evict).
 - [ ] `domain/enrollment/event/EnrollmentCreatedEvent.java` — `record(UUID enrollmentId, UUID classId, UUID classmateId, EnrollmentStatus status, Instant occurredAt)`.
-- [ ] `application/enrollment/EnrollmentCacheInvalidator.java` — `@TransactionalEventListener(phase=AFTER_COMMIT)`로 `EnrollmentCreatedEvent` 받아 `class:enrolledCount::{classId}` 캐시 evict.
+- [ ] ~~`application/enrollment/EnrollmentCacheInvalidator.java`~~ — **항목 삭제 (Pre-flight 5 결정)**. Spring Cache 미사용 → cache evict listener 불요.
 - [ ] `application/enrollment/CreatorCannotEnrollException.java` — `DomainException` 상속, status 403.
 - [ ] `application/enrollment/MirrorUnavailableException.java` — Redis 연결 실패 매핑용. `GlobalExceptionHandler` 에서 503 매핑. `EnrollmentMirrorService` 가 `RedisConnectionFailureException` / `QueryTimeoutException` 을 catch 해 변환.
 - [ ] `domain/clazz/ClassNotFoundException.java` — `DomainException`, status 404.

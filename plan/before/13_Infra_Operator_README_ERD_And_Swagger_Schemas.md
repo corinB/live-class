@@ -20,7 +20,7 @@
   4. **API 문서** — Swagger UI 링크 `http://localhost:8080/swagger-ui.html`.
   5. **ERD** — Mermaid 다이어그램.
   6. **도메인 설계 요약** — DOCS.md 링크 + Class/Enrollment 상태 전이 다이어그램 (Class 에 endDate 자동 close 분기 표시).
-  7. **동시성 설계 요약** — ARCHITECTURE.md 링크 + "왜 Lua atomic + ZSET FIFO인가" 3~5 줄 요약. (a) race-critical path 라운드트립 1회 압축. (b) ZSET score 가 자료구조 차원 FIFO 강제. (c) 트레이드오프 — 이중 SoT 를 보상 Lua + 부팅 reconcile + partial unique index 3중 방어로 봉합. (d) `POST /api/admin/reconcile/{classId}` 운영 escape hatch 언급.
+  7. **동시성 설계 요약** — ARCHITECTURE.md 링크 + "왜 Lua atomic + ZSET FIFO인가" 3~5 줄 요약. (a) race-critical path 라운드트립 1회 압축. (b) ZSET score 가 자료구조 차원 FIFO 강제. (c) 트레이드오프 — 이중 SoT 를 보상 Lua + 부팅 reconcile + partial unique index 3중 방어로 봉합. (d) `POST /api/admin/reconcile/{classId}` 운영 escape hatch 언급. (e) **Cache 계층 미사용** — ZSET mirror 가 결정 경로 캐시 역할을 하므로 별도 Spring Cache 도입 안 함 (Pre-flight 5). production 에서는 RPS·hit-rate·TTL 측정 후 도입 검토.
   8. **테스트** — `./gradlew test` 실행 방법, 동시성 테스트 50 스레드 시나리오 + Redis disconnect + 보상 + reconcile 시나리오 설명.
   9. **API 엔드포인트 목록** — 표 형태 (Method, Path, 인증, 설명, 응답 status). admin reconcile 엔드포인트 포함.
   10. **한계 및 미구현** — 4개 도메인 빈틈 명시.

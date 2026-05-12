@@ -63,7 +63,7 @@
 - [ ] `application/enrollment/EnrollmentMirrorService` 에 메서드 추가.
   - `List<String> cancelAndMaybePromote(UUID classId, UUID classmateId, boolean wasConfirmed)` — `enrollmentCancelPromoteScript` 호출.
   - `void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted, long promotedScore)` — `ZADD enrolled` (canceller 복귀, score=현재 시각 ns 또는 보존 필요) + `ZADD waitlist` (promoted 복귀, score=promotedScore). 두 단순 호출.
-- [ ] `EnrollmentCacheInvalidator`에 `EnrollmentConfirmedEvent`, `EnrollmentCancelledEvent`, `WaitlistPromotedEvent` 핸들러 추가 — 모두 `class:enrolledCount::{classId}` evict.
+- [ ] ~~`EnrollmentCacheInvalidator`~~ — **항목 삭제 (Pre-flight 5 결정)**. Spring Cache 미사용 → 세 이벤트(`EnrollmentConfirmedEvent`, `EnrollmentCancelledEvent`, `WaitlistPromotedEvent`) 는 발행만 하고 cache evict listener 는 두지 않는다.
 - [ ] `web/enrollment/EnrollmentController.java`에 두 endpoint 추가.
   - `POST /{id}/confirm-payment` → 200 + `EnrollmentResponse`.
   - `DELETE /{id}` → 200 + `EnrollmentResponse(CANCELLED)`.
