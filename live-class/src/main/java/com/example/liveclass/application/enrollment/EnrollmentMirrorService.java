@@ -2,6 +2,8 @@
 package com.example.liveclass.application.enrollment;
 
 import com.example.liveclass.domain.clazz.ClassStatus;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
@@ -38,19 +40,35 @@ public class EnrollmentMirrorService {
 
     /**
      * Calls enrollment_apply.lua — returns "PENDING", "WAITLISTED", "DUPLICATE_ACTIVE",
-     * "CLASS_NOT_FOUND_IN_MIRROR", or "CLASS_NOT_OPEN".
-     * Full implementation in task 09.
+     * "CLASS_NOT_FOUND", or "CLASS_NOT_OPEN".
+     * Throws MirrorUnavailableException if Redis is unreachable.
      */
     public String tryApply(UUID classId, UUID classmateId, long appliedAtNanos, int capacity) {
-        throw new UnsupportedOperationException("implemented in task 09");
+        try {
+            return redisTemplate.execute(
+                    enrollmentApplyScript,
+                    List.of("enrolled:" + classId, "waitlist:" + classId, "class:status:" + classId),
+                    String.valueOf(capacity),
+                    classmateId.toString(),
+                    String.valueOf(appliedAtNanos));
+        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
+            throw new MirrorUnavailableException("Redis unavailable during enrollment apply", ex);
+        }
     }
 
     /**
      * Calls enrollment_compensate.lua to undo a ZSET entry after a failed DB INSERT.
-     * Full implementation in task 09.
+     * Throws MirrorUnavailableException if Redis is unreachable.
      */
     public void compensateApply(UUID classId, UUID classmateId) {
-        throw new UnsupportedOperationException("implemented in task 09");
+        try {
+            redisTemplate.execute(
+                    enrollmentCompensateScript,
+                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    classmateId.toString());
+        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
+            throw new MirrorUnavailableException("Redis unavailable during enrollment compensate", ex);
+        }
     }
 
     /**

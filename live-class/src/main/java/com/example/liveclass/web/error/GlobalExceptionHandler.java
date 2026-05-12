@@ -1,6 +1,7 @@
 // 도메인 예외·검증 오류·낙관적 잠금 실패를 RFC 7807 ProblemDetail 로 매핑하는 전역 예외 핸들러
 package com.example.liveclass.web.error;
 
+import com.example.liveclass.application.enrollment.MirrorUnavailableException;
 import com.example.liveclass.domain.shared.DomainException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -37,6 +38,14 @@ public class GlobalExceptionHandler {
                 HttpStatus.CONFLICT, "Resource was modified by another request. Please retry.");
         detail.setProperty("errorCode", "OPTIMISTIC_LOCK_FAILURE");
         return ResponseEntity.status(HttpStatus.CONFLICT).body(detail);
+    }
+
+    @ExceptionHandler(MirrorUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleMirrorUnavailable(MirrorUnavailableException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE, "Enrollment service temporarily unavailable. Please retry.");
+        detail.setProperty("errorCode", "MIRROR_UNAVAILABLE");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(detail);
     }
 
     @ExceptionHandler(Exception.class)
