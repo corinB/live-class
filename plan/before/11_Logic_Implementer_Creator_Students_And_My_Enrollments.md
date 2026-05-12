@@ -11,25 +11,25 @@
 
 ## Action Items (Checklist)
 
-- [ ] `EnrollmentRepository`에 다음 메서드 추가.
+- [x] `EnrollmentRepository`에 다음 메서드 추가.
   - `@Query("select e from Enrollment e where e.classId = :classId and e.status = com.example.liveclass.domain.enrollment.EnrollmentStatus.CONFIRMED order by e.paidAt asc") Page<Enrollment> findConfirmedByClassId(UUID classId, Pageable pageable);`
   - `Page<Enrollment> findByClassmateIdOrderByAppliedAtDesc(UUID classmateId, Pageable pageable);`
   - 상태 필터 지원: `Page<Enrollment> findByClassmateIdAndStatusInOrderByAppliedAtDesc(UUID classmateId, Collection<EnrollmentStatus>, Pageable);`
-- [ ] `application/enrollment/EnrollmentQueryService.java` — `@Service @Transactional(readOnly=true)`.
+- [x] `application/enrollment/EnrollmentQueryService.java` — `@Service @Transactional(readOnly=true)`.
   - `Page<StudentResponse> listStudents(UUID classId, UUID requesterId, Pageable pageable)`.
     - `Class clazz = classRepository.findById(classId).orElseThrow(ClassNotFoundException);`
     - `if (!clazz.getCreatorId().equals(requesterId)) throw new AccessDeniedDomainException();`
     - `return enrollmentRepository.findConfirmedByClassId(classId, pageable).map(StudentResponse::from);`
   - `Page<EnrollmentResponse> listMyEnrollments(UUID classmateId, Set<EnrollmentStatus> statuses, Pageable pageable)`.
     - statuses 비어있으면 전체 상태 검색.
-- [ ] `web/enrollment/dto/StudentResponse.java` — `record(UUID enrollmentId, UUID classmateId, String classmateName, Instant paidAt)`. classmateName은 `User` 조회 또는 `UserRepository`로 batch 조회 (N+1 방지를 위해 `In(classmateIds)` 한 번에).
-- [ ] `web/clazz/ClassController.java`에 `GET /{id}/students` 추가.
+- [x] `web/enrollment/dto/StudentResponse.java` — `record(UUID enrollmentId, UUID classmateId, String classmateName, Instant paidAt)`. classmateName은 `User` 조회 또는 `UserRepository`로 batch 조회 (N+1 방지를 위해 `In(classmateIds)` 한 번에).
+- [x] `web/clazz/ClassController.java`에 `GET /{id}/students` 추가.
   - `Pageable pageable` 파라미터, `@PageableDefault(size=20, sort="paidAt")`.
-- [ ] `web/enrollment/EnrollmentController.java`에 `GET /me` 추가.
+- [x] `web/enrollment/EnrollmentController.java`에 `GET /me` 추가.
   - 쿼리 파라미터 `status` (콤마 구분, 선택), `Pageable pageable`.
-- [ ] (Verify) `EnrollmentQueryServiceTest.java` — `@IntegrationTest`.
+- [x] (Verify) `EnrollmentQueryServiceTest.java` — `@IntegrationTest`.
   - 다른 Creator가 students 호출 → 403.
   - CONFIRMED 30건 + WAITLISTED 5건 + CANCELLED 3건 있을 때 size=10 → CONFIRMED 10건만, totalElements=30, totalPages=3.
   - my-enrollments에서 status=PENDING,CONFIRMED 필터 적용 시 CANCELLED 제외 확인.
-- [ ] (Verify) `web/clazz/StudentsControllerSliceTest.java` — `@WebMvcTest`로 권한 분기와 page 응답 구조 검증.
-- [ ] (Verify) N+1 쿼리 방지 검증 — `Hibernate.Statistics` 또는 `Datasource-proxy`로 30건 응답 시 SQL 호출 횟수가 2 이하임을 확인 (Enrollment 페이지 1 + User batch 1).
+- [x] (Verify) `web/clazz/StudentsControllerSliceTest.java` — `@WebMvcTest`로 권한 분기와 page 응답 구조 검증.
+- [x] (Verify) N+1 쿼리 방지 검증 — `Hibernate.Statistics` 또는 `Datasource-proxy`로 30건 응답 시 SQL 호출 횟수가 2 이하임을 확인 (Enrollment 페이지 1 + User batch 1).
