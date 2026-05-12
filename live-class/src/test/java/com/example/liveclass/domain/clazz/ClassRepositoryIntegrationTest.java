@@ -7,6 +7,7 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -51,6 +52,9 @@ class ClassRepositoryIntegrationTest {
     @Autowired
     private ClassRepository classRepository;
 
+    @Autowired
+    private TestEntityManager em;
+
     private Class buildDraftClass(UUID creatorId) {
         return Class.draft(
                 UserId.of(creatorId),
@@ -67,6 +71,9 @@ class ClassRepositoryIntegrationTest {
     void findByIdForUpdate_issuesSelectForUpdateSql() {
         UUID creatorId = UUID.randomUUID();
         Class saved = classRepository.saveAndFlush(buildDraftClass(creatorId));
+
+        // Detach the persistence-context cache so findByIdForUpdate must hit the DB
+        em.clear();
 
         SqlCaptor.CAPTURED.clear();
         classRepository.findByIdForUpdate(saved.getId());
