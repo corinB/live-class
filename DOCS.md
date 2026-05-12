@@ -3,7 +3,7 @@
 status: draft
 owner: live-class team
 created: 2026-05-11
-updated: 2026-05-11
+updated: 2026-05-12
 ---
 
 # DOCS.md — Live Class Domain Design
@@ -63,7 +63,7 @@ Aggregate Root는 **`Class`** 이며 강의 메타데이터와 모집 상태를 
 | description | `String` | 강의 설명. |
 | price | `Money` (VO) | 수강료. `amount: BigDecimal`, `currency: Currency`. |
 | capacity | `Capacity` (VO) | 최대 수강 인원. `value: int`, `value > 0` 불변. |
-| period | `ClassPeriod` (VO) | `startDate: LocalDate`, `endDate: LocalDate`. `startDate <= endDate` 불변. |
+| period | `ClassPeriod` (VO) | 강의 **진행 기간** (수업 첫날 ~ 마지막날). 신청 모집 기간이 아니다. `startDate: LocalDate`, `endDate: LocalDate`, `startDate <= endDate` 불변. `endDate` 도래 시 Quartz 가 자동 close (ARCHITECTURE §8). |
 | status | `ClassStatus` (Enum) | `DRAFT`, `OPEN`, `CLOSED`. |
 | creatorId | `UserId` (VO) | 강의 개설자(Creator) 식별자. |
 | createdAt | `Instant` | 생성 시각. |
@@ -157,6 +157,7 @@ public boolean isClassmate()
 - Aggregate 간 참조는 **항상 ID 참조**(`ClassId`, `UserId`, `EnrollmentId`)만 사용한다.
 - 한 트랜잭션은 한 Aggregate 인스턴스만 변경하는 것을 원칙으로 한다(예: 신청 시 `Class`의 카운터는 직접 수정하지 않고 `EnrollmentCreatedEvent` 또는 별도 read model에서 처리).
 - 대기열 승격처럼 다중 Aggregate가 관여하는 시나리오는 도메인 이벤트로 분리한다(섹션 5.2).
+- **예외 조항 — Redis ZSET Mirror**. ARCHITECTURE.md §4·§5 에서 채택한 `enrolled:{classId}` / `waitlist:{classId}` Redis ZSET 은 Enrollment Aggregate 의 **index** 로 취급한다. 별개 Aggregate 가 아니며, ZSET 갱신은 동일 application 트랜잭션 안에서 Lua atomic script 로 수행하고 DB 쓰기와 Transactional Outbox 의미로 짝지운다. 위의 "한 트랜잭션 한 Aggregate" 원칙은 이 index 갱신을 포함하지 않는다(index 는 도메인 객체의 외부 표현).
 
 ---
 
@@ -178,7 +179,7 @@ stateDiagram-v2
 |------|--------------|------|
 | `→ DRAFT` | `Class.draft(...)` | 최초 생성 시. |
 | `DRAFT → OPEN` | `Class.open(now)` | 호출자가 Creator(`creatorId` 일치)여야 한다. |
-| `OPEN → CLOSED` | `Class.close(now)` | Creator가 수동 종료. |
+| `OPEN → CLOSED` | `Class.close(now)` (Creator 수동) **또는** `Class.autoClose(now)` (Quartz `ClassAutoCloseJob`) | Creator 수동 종료, 또는 `endDate` 도래 시 매일 00:05 KST Quartz 자동 close (Asia/Seoul, ARCHITECTURE §8). 동시 호출은 `@Version` optimistic lock 으로 한쪽만 성공. |
 
 ### Enrollment Lifecycle
 
@@ -242,8 +243,9 @@ stateDiagram-v2
 1. `capacity.value >= 1` — 정원은 1 이상이어야 한다.
 2. `period.endDate >= period.startDate` — 종료일은 시작일 이후여야 한다.
 3. 상태 전이는 `DRAFT → OPEN → CLOSED` 일방향만 허용한다. 역방향 호출은 도메인 예외로 거부한다.
-4. 상태 전이 메서드는 호출자가 `creatorId` 와 일치할 때만 허용한다.
+4. 상태 전이 메서드는 호출자가 `creatorId` 와 일치할 때만 허용한다. 단 Quartz `ClassAutoCloseJob` 이 호출하는 `autoClose()` 는 시스템 호출로서 Creator 일치 검증을 우회한다(시스템 가상 사용자).
 5. `capacity` 변경은 `DRAFT` 상태에서만 허용한다.
+6. `endDate` 경과 후 `status` 는 `OPEN` 으로 남을 수 없다. Quartz `ClassAutoCloseJob` 이 매일 00:05 KST 에 OPEN 이면서 `endDate < today(KST)` 인 모든 Class 에 대해 자동 close 를 시도한다. Creator 수동 close 와 충돌할 경우 `@Version` optimistic lock 으로 한쪽만 성공하며, 패자는 `IllegalStateTransitionException` 을 catch 해 INFO 로깅 후 멱등 응답으로 처리한다.
 
 ### Enrollment
 

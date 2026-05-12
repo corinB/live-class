@@ -1,13 +1,13 @@
-<!-- 라이브 강의 수강신청 시스템의 동시성 제어·캐싱·실패 복구 아키텍처 문서 -->
+<!-- 라이브 강의 수강신청 시스템의 동시성 제어·캐싱·스케줄링·실패 복구 아키텍처 문서 -->
 ---
 status: draft
 owner: live-class team
 created: 2026-05-11
-updated: 2026-05-11
+updated: 2026-05-12
 companion: DOCS.md
 ---
 
-# ARCHITECTURE.md — Concurrency & Caching Architecture
+# ARCHITECTURE.md — Concurrency, Caching & Scheduling Architecture
 
 ## Table of Contents
 
@@ -15,29 +15,36 @@ companion: DOCS.md
 2. [Concurrency Scenarios](#2-concurrency-scenarios)
 3. [Strategy Comparison](#3-strategy-comparison)
 4. [Chosen Approach](#4-chosen-approach)
-5. [Redis Caching Layer](#5-redis-caching-layer)
+5. [Redis Caching & Mirror Layer](#5-redis-caching--mirror-layer)
 6. [End-to-End Request Flows](#6-end-to-end-request-flows)
 7. [Failure Modes & Recovery](#7-failure-modes--recovery)
+8. [Scheduled Jobs (Quartz)](#8-scheduled-jobs-quartz)
+
+> **본 문서는 2026-05-12 갱신본이다.** 초안(2026-05-11) 은 PostgreSQL `SELECT FOR UPDATE` 를 1차 동시성 제어로 채택했으나 본 갱신본부터는 **Redis ZSET + Lua atomic script 를 1차 동시성 제어로, PostgreSQL 을 영속화 + 마지막 정합성 방어선**으로 전환한다. 또한 `Class.period.endDate` 도래 시 OPEN→CLOSED 를 자동 전이시키는 Quartz 스케줄링이 §8 에 추가됐다. 결정 사유와 트레이드오프는 §3·§4·§8 에 명시한다. 도메인 불변식(DOCS.md §6) 은 endDate 자동 close 행 1건이 추가된 것 외에는 변하지 않는다.
 
 ---
 
 ## 1. Overview
 
-라이브 강의 수강신청 시스템은 **고경합 자원(`Class.capacity`)에 대한 동시 쓰기** 와 **다중 Aggregate에 걸친 상태 전이(취소 → 대기열 승격)** 라는 두 축의 동시성 문제를 안고 있다. DOCS.md §6 Invariants 가 요구하는 다음 규칙들은 모두 동시성 제어가 무너지면 즉시 깨진다.
+라이브 강의 수강신청 시스템은 **고경합 자원(`Class.capacity`) 에 대한 동시 쓰기** 와 **다중 Aggregate 에 걸친 상태 전이(취소 → 대기열 승격)** 라는 두 축의 동시성 문제를 안고 있다. DOCS.md §6 Invariants 가 요구하는 다음 규칙들은 모두 동시성 제어가 무너지면 즉시 깨진다.
 
-- Enrollment §2 — `CONFIRMED + PENDING` 합산이 `capacity` 를 초과해서는 안 된다(정원 초과 금지).
+- Enrollment §2 — `CONFIRMED + PENDING` 합산이 `capacity` 를 초과해서는 안 된다.
 - Enrollment §3 — 동일 `(classId, classmateId)` 활성 신청 중복 금지.
 - Enrollment §8 — 대기열 승격은 `appliedAt` 오름차순으로 정확히 1건만 일어난다.
 - Class §3 — `DRAFT → OPEN → CLOSED` 일방향 전이.
+- Class §6 (신규) — `endDate` 경과 후 `OPEN` 상태로 남을 수 없다. Quartz 가 자동 close 시도, Creator 수동 close 와 `@Version` 으로 충돌 해소.
 
-본 시스템은 **모듈러 모놀리스 + 단일 PostgreSQL + 단일 Redis** 구성이며 단일 JVM 안에서 Spring `ApplicationEventPublisher` 로 컨텍스트가 협력한다. 분산 트랜잭션(2PC)이나 Saga 는 불필요하다. 다만 **다중 인스턴스로 수평 확장하는 순간 JVM 내부 락(`synchronized`, `ReentrantLock`)은 무용지물이 되므로**, 인프라 레벨의 동시성 제어가 필수다.
+본 시스템은 **모듈러 모놀리스 + 단일 PostgreSQL + 단일 Redis + Quartz in-memory scheduler** 구성이며 단일 JVM 안에서 Spring `ApplicationEventPublisher` 로 컨텍스트가 협력한다. 분산 트랜잭션(2PC)이나 Saga 는 사용하지 않는다.
 
 설계 원칙은 다음과 같다.
 
-1. **Source of Truth 는 PostgreSQL** 이다. Redis 는 캐시·락 매니저·원자 카운터로만 사용하고 영속 상태의 단독 권위가 되지 않는다.
-2. **한 트랜잭션은 한 Aggregate 만 변경** 한다(DOCS.md §3.4). 다중 Aggregate 가 관여하는 흐름은 도메인 이벤트로 분리한다.
-3. **락 보유 시간은 짧게**. 락 안에서 외부 I/O(결제, 알림) 를 호출하지 않는다.
-4. **실패 모드 명시**. 락 획득 실패, 타임아웃, 만료를 도메인 예외로 명시적으로 매핑한다.
+1. **Source of Truth 는 PostgreSQL 이지만, race-critical 결정은 Redis ZSET 미러가 1차 게이트** 다. Redis ZSET (`enrolled:{classId}`, `waitlist:{classId}`) 는 Enrollment Aggregate 의 *index* 로 취급한다(DOCS.md §3.4 의 한-트랜잭션-한-Aggregate 원칙 예외 조항). DB 는 영속 + 마지막 방어선(partial unique index)이다.
+2. **race-safe 결정은 Lua atomic script 한 번의 호출 안에서 끝낸다**. read-modify-write 가 Redis 서버 단일 스레드 안에서 직렬화되므로 분산 락이 필요 없다.
+3. **DB 쓰기는 Lua 결정 직후에 같은 application 트랜잭션 안에서 수행** 한다. Lua 성공 후 DB 실패 시 보상 Lua (`enrollment_compensate.lua`) 로 ZSET 갱신을 되돌린다.
+4. **락 보유 시간은 0 이다**. Redis 는 lock 매니저가 아닌 atomic executor 이며, JVM lock / Redisson `RLock` 모두 critical path 에 두지 않는다.
+5. **실패 모드는 fail-closed**. Redis 연결 실패는 즉시 503 으로 사용자에게 회신한다. 정합성 우선 정책.
+6. **부팅 시 ZSET reconcile 을 의무화** 한다. 어떤 경로로든 ZSET 이 비어 있거나 어긋나 있을 가능성을 가정하고 DB → Redis 재구성 절차를 항상 통과시킨다.
+7. **시간 기반 자동 전이는 Quartz 가 담당** 한다(§8). 단일 EC2 + in-memory JobStore 가정. 멀티 인스턴스 확장 시 JDBC JobStore 로 전환하며 본 설계의 다른 부분은 그대로 유효하다.
 
 ---
 
@@ -47,32 +54,31 @@ DOCS.md 가 정의한 도메인 규칙에 비춰 본 시스템이 반드시 정�
 
 ### 2.1 마지막 자리 race condition
 
-- **상황** — `Class.capacity = N`, 현재 `PENDING + CONFIRMED` 합산 = `N - 1`. 정확히 동일한 순간에 `M` 명(M >= 2)이 `POST /enrollments` 를 호출한다.
-- **요구** — Invariant Enrollment §2. 1명만 `PENDING` 으로 진입하고 나머지 `M - 1` 명은 `WAITLISTED` 로 진입한다(거부가 아니라 대기열 진입, DOCS §4.2).
-- **실패 모드** — naive `SELECT count(*) ... ; INSERT` 구현은 **lost update + phantom read** 로 `N + k` 명이 `PENDING` 에 들어간다(`k = 동시 요청 수 - 1`).
-- **기대 동작** — `(classId)` 단위로 직렬화된 critical section 안에서 잔여 정원을 읽고, 0 이면 `WAITLISTED`, 1 이상이면 `PENDING` 으로 INSERT 한다.
+- **상황** — `Class.capacity = N`, 현재 `PENDING + CONFIRMED` 합산 = `N - 1`. 동일한 순간에 `M` 명(M >= 2)이 `POST /enrollments` 를 호출한다.
+- **요구** — Invariant Enrollment §2. 1명만 `PENDING` 으로 진입하고 나머지 `M - 1` 명은 `WAITLISTED` 로 진입한다(DOCS §4.2 — 거부가 아니라 대기열 진입).
+- **실패 모드** — naive `SELECT count(*); INSERT` 구현은 lost update + phantom read 로 `N + k` 명이 PENDING 에 들어간다.
+- **기대 동작** — `(classId)` 단위로 직렬화된 critical section 안에서 잔여 정원을 읽고, 0 이면 WAITLISTED, 1 이상이면 PENDING 으로 분기한다.
 
 ### 2.2 대기열 자동 승격 (double-promotion 방지)
 
-- **상황** — `Class C` 에 `CONFIRMED` 인 Enrollment 두 건이 거의 동시에 취소된다. `WAITLISTED` 의 선두는 한 명(`appliedAt` 가장 오래된)이다.
-- **요구** — Invariant Enrollment §8. 두 번의 취소는 각각 **서로 다른** WAITLISTED 1건을 PENDING 으로 승격시켜야 한다. 같은 한 사람이 2번 승격되는(double promotion) 일도, 자리가 비었는데 아무도 승격되지 않는(lost promotion) 일도 없어야 한다.
-- **실패 모드** — 두 cancel 핸들러가 `SELECT ... WHERE status='WAITLISTED' ORDER BY appliedAt LIMIT 1` 를 동시에 읽으면 둘 다 같은 row 를 PENDING 으로 UPDATE 하려고 시도. 격리수준이 READ COMMITTED 면 lost update 발생.
-- **기대 동작** — cancel 트랜잭션 안에서 `(classId)` 단위 락을 잡고, 그 안에서 다음 승격 후보를 행 단위로 잠근다(`FOR UPDATE SKIP LOCKED`). cancel 이벤트당 정확히 1건이 `WAITLISTED → PENDING` 으로 전이한다.
+- **상황** — `Class C` 에 CONFIRMED 인 Enrollment 두 건이 거의 동시에 취소된다. WAITLISTED 의 선두는 한 명이다.
+- **요구** — Invariant Enrollment §8. 두 번의 취소는 각각 서로 다른 WAITLISTED 1건을 PENDING 으로 승격시켜야 한다. double promotion 도, lost promotion 도 없어야 한다.
+- **실패 모드** — 두 cancel 핸들러가 `SELECT ... WHERE status='WAITLISTED' ORDER BY appliedAt LIMIT 1` 를 동시에 읽으면 둘 다 같은 row 를 PENDING 으로 UPDATE 시도, lost update 발생.
+- **기대 동작** — cancel 트랜잭션 안에서 `(classId)` 두 ZSET 을 **단일 Lua 호출** 로 swap 한다. `ZREM enrolled` + `ZPOPMIN waitlist` + `ZADD enrolled` 가 한 원자 단위에서 끝난다.
 
 ### 2.3 7일 취소 창 enforce
 
 - **상황** — `paidAt = 2026-05-04T10:00:00Z`. 사용자가 `2026-05-11T09:59:59Z` 와 `2026-05-11T10:00:01Z` 에 각각 취소를 시도한다.
 - **요구** — Invariant Enrollment §5. `paidAt + 168h` 까지가 허용 경계.
-- **경계 정책** — `now <= paidAt + Duration.ofDays(7)` 을 허용으로 정의한다. 즉 정확히 `+7일 0시 0분 0초` 시점은 **허용**, `+7일 0시 0분 1초` 부터 거부. DOCS §4.2 의 "이내" 라는 표현을 폐구간으로 해석한다.
-- **실패 모드** — 동일 Enrollment 에 대해 두 cancel 요청이 동시에 도착하면 한 건은 `CONFIRMED → CANCELLED` 성공, 다른 건은 이미 `CANCELLED` 인 row 를 다시 취소하려고 시도(DOCS Invariant Enrollment §6 위반).
-- **기대 동작** — Enrollment row 자체에 `SELECT ... FOR UPDATE` 또는 `version` 컬럼 기반 optimistic lock 을 걸어 상태 전이를 단 한 번만 허용한다.
+- **경계 정책** — `now <= paidAt + Duration.ofDays(7)` 을 허용으로 정의한다. 정확히 `+7일 0시 0분 0초` 시점은 **허용**, `+7일 0시 0분 1초` 부터 거부.
+- **실패 모드** — 동일 Enrollment 에 대해 두 cancel 요청이 동시에 도착하면 한 건은 `CONFIRMED → CANCELLED` 성공, 다른 건은 이미 CANCELLED 인 row 를 다시 취소하려고 시도(Invariant §6 위반).
+- **기대 동작** — Enrollment row 의 `@Version` optimistic lock 으로 상태 전이를 단 한 번만 허용한다. 7일 비교는 application service 의 비즈니스 로직 (Lua 안에서 다루지 않는다).
 
-### 2.4 상태 전이 무결성
+### 2.4 상태 전이 무결성 (수동 + 자동)
 
-- **상황** — Creator 가 `POST /classes/{id}/close` 를 더블 클릭하거나, 두 관리자 세션에서 동시에 `DRAFT → OPEN` 과 `DRAFT → CLOSED`(실제로는 DOCS §3 위반이지만 방어 필요) 를 시도한다.
-- **요구** — Class Invariant §3. 단 한 번만 성공하고 나머지는 도메인 예외(`IllegalStateTransitionException`).
-- **실패 모드** — `Class` row 의 `status` 컬럼을 두 트랜잭션이 동시에 읽으면 둘 다 `DRAFT` 로 보고 둘 다 UPDATE 시도.
-- **기대 동작** — `Class` row 에 optimistic lock(`@Version`) 을 부여하고, 충돌 시 `OptimisticLockException` 을 catch 해 도메인 예외로 변환. 사용자 측에는 멱등 응답으로 매핑(이미 OPEN 이면 OK, 이미 CLOSED 면 OK).
+- **상황** — Creator 가 `PATCH /classes/{id}/status close` 를 더블 클릭하거나, Quartz `ClassAutoCloseJob` 이 동일 강의의 close 를 거의 동시에 트리거한다.
+- **요구** — Class Invariant §3 + §6. 단 한 번만 성공.
+- **기대 동작** — `Class` row 에 `@Version` optimistic lock. 충돌 시 도메인 예외, 멱등 응답으로 매핑. 상태 전이 성공 시 Redis mirror (`class:status:{classId}`) 도 함께 갱신해 Lua 가 신선한 상태를 읽도록 한다.
 
 ---
 
@@ -82,26 +88,25 @@ DOCS.md 가 정의한 도메인 규칙에 비춰 본 시스템이 반드시 정�
 
 ### 3.1 비교표
 
-| 항목 | A. DB Pessimistic Lock (`SELECT FOR UPDATE`) | B. Redisson `RLock` | C. Redis Lua Atomic Script |
+| 항목 | A. DB Pessimistic Lock (`SELECT FOR UPDATE`) | B. Redisson `RLock` | C. **Redis ZSET + Lua Atomic Script** |
 |------|--------------------------------------------|---------------------|----------------------------|
-| **작동 원리** | Postgres row 에 행 단위 X-lock 을 걸고 트랜잭션 종료 시 해제. | Redis 키에 SETNX + TTL + pub/sub 으로 분산 mutex 구현. Watchdog 이 TTL 자동 연장. | 단일 Lua 스크립트가 Redis 서버 안에서 read-modify-write 를 원자적으로 실행. |
-| **§2.1 마지막 자리** | `Class` row 에 FOR UPDATE 걸고 잔여 정원 계산. DB 라운드트립 1회 + INSERT. **트랜잭션 일관성 보장**. | Redis 락 획득 → DB 트랜잭션 시작 → 카운트 → INSERT → 커밋 → 락 해제. 락과 DB 가 분리되어 **락 해제 직전 DB 커밋 실패 시 윈도우 발생**. | Redis 에 `remaining_seats` 카운터 두고 `DECR` 을 Lua 로 원자 검사. 그러나 **WAITLISTED 진입 시 `appliedAt` FIFO 보장을 위해 결국 DB 가 필요**. |
-| **§2.2 대기열 승격** | `FOR UPDATE SKIP LOCKED` 로 다음 후보 1건만 잠그면 double-promotion 자연스럽게 방지. **PostgreSQL 의 SKIP LOCKED 가 이 시나리오에 정확히 맞는 도구**. | 가능하지만 락 잡고 DB 쿼리 한 번 더 함. SKIP LOCKED 보다 라운드트립 1회 더. | Lua 만으로 표현하기 어렵다. WAITLISTED 후보 목록을 Redis ZSET 으로 미러링해야 하며 **DB 와 정합성 동기화 부담**이 폭발. |
-| **§2.3 7일 창** | Enrollment row 에 FOR UPDATE 또는 `@Version`. 트랜잭션 안에서 `paidAt + 7일` 비교. **단순**. | Enrollment 키별 락 필요. TTL 만료가 7일 정책과 무관함에도 동시성 문제만을 위해 락 도입은 과잉. | 7일 비교는 비즈니스 로직이라 Lua 안에 넣기 부적합. |
-| **§2.4 상태 전이** | `@Version` optimistic lock 으로 충분. 충돌률이 낮은 시나리오. | 과잉. | 과잉. |
-| **장애 모델** | DB 가 죽으면 어차피 시스템이 죽는다(단일 SoT). **추가 장애점 없음**. | Redis 가 죽으면 락 자체 불가 → fallback 정책 필요. **장애점 +1**. | Redis 가 죽으면 정원 카운터가 사라짐 → DB 에서 rebuild 필요. **장애점 +1 + 재구성 비용**. |
-| **데드락** | 락 순서 위반 시 발생 가능. PostgreSQL 이 감지해 한쪽 트랜잭션 abort. | Watchdog TTL 연장이 정상 동작하면 데드락 자체는 거의 없으나, **lease 만료로 인한 silent unlock** 위험. | 단일 Lua 호출 안에서 끝나므로 데드락 없음. |
-| **Fairness** | DB 의 락 큐는 FIFO 가 보장되지 않는다(PostgreSQL 은 FIFO 에 가깝지만 명시 보장 X). | `RLock` 자체는 비공정. `RFairLock` 사용 시 가능하나 성능 손해. | Lua 는 단일 스레드 직렬 실행 → 도착 순서대로 처리. |
-| **성능 (단일 노드)** | row lock + INSERT 1 트랜잭션. p99 수 ms 수준. | Redis 라운드트립 2회(lock, unlock) + DB 트랜잭션. **네트워크 hop 추가**. | Redis 라운드트립 1회. **가장 빠름**. 단, 비즈니스 로직 일부만 처리 가능. |
-| **운영 복잡도** | 익숙한 SQL. 모니터링은 `pg_locks`, `pg_stat_activity`. | Redisson client + Redis 모니터링 + watchdog 동작 이해 필요. | Lua 디버깅 어렵다. 스크립트 캐시(`EVALSHA`) 관리. |
-| **테스트 용이성** | `@Transactional` + Testcontainers PostgreSQL 로 단순. | 임베디드 Redis 또는 Testcontainers 필요. RLock 의 watchdog 시간을 통제하기 까다로움. | 동일하게 Redis 필요. Lua 단위 테스트는 별도 framework 필요. |
-| **모듈러 모놀리스 적합성** | 매우 높음. 단일 JVM + 단일 DB 의 트랜잭션 경계와 자연스럽게 일치. | 중간. 수평 확장에 대비한 보험이지만 현재 단일 JVM 에서는 과잉. | 낮음. Redis 를 SoT 로 끌어올리는 효과가 발생해 모놀리스의 단순함을 훼손. |
+| **작동 원리** | Postgres row 에 행 단위 X-lock 을 걸고 트랜잭션 종료 시 해제. | Redis 키에 SETNX + TTL + pub/sub 으로 분산 mutex 구현. Watchdog 이 TTL 자동 연장. | 단일 Lua 스크립트가 Redis 서버 안에서 read-modify-write 를 원자적으로 실행. `enrolled:{classId}` 와 `waitlist:{classId}` 두 ZSET 을 Aggregate 의 index 로 운영. |
+| **§2.1 마지막 자리** | `Class` row 에 FOR UPDATE 걸고 잔여 정원 계산. 같은 `classId` 의 모든 신청이 row lock 큐에 직렬화. p99 가 큐 길이에 비례해 증가. | Redis 락 획득 → DB 트랜잭션 시작 → 카운트 → INSERT → 커밋 → 락 해제. 락과 DB 가 분리되어 락 해제 직전 DB 커밋 실패 시 윈도우 발생. | **단일 Lua 호출이 ZCARD → 분기 → ZADD 를 원자 실행.** Redis 단일 스레드 직렬화로 race 자체가 정의 불가능. DB INSERT 는 결정 이후의 영속화 단계로 분리. |
+| **§2.2 대기열 승격** | `FOR UPDATE SKIP LOCKED` 로 다음 후보 1건만 잠그면 double-promotion 방지. PG 락 큐에 의존, 다중 cancel 동시 발생 시 한 cancel 이 다른 cancel 의 row lock 을 기다린다. | 락 잡고 DB 쿼리 한 번 더 함. SKIP LOCKED 보다 라운드트립 1회 더. | **단일 Lua 호출이 `ZREM enrolled` + `ZPOPMIN waitlist` + `ZADD enrolled` 를 원자 swap.** 두 ZSET 사이 정합성 윈도우가 0. double promotion 도, lost promotion 도 정의 불가. |
+| **§2.3 7일 창** | `FOR UPDATE` 또는 `@Version` + `paidAt + 7d` 비교. | 동시성 보호용 락 도입은 과잉. | 7일 비교는 비즈니스 로직 — Lua 안에 두지 않고 application service 가 처리. **§2.3 한정으로 `@Version` optimistic lock 이 여전히 표준 해법.** |
+| **§2.4 상태 전이** | `@Version` optimistic lock 으로 충분. | 과잉. | `@Version` 유지. 추가로 상태 전이 성공 후 `class:status:{classId}` mirror 갱신 (다음 신청 Lua 가 신선한 상태를 읽도록). 수동 close 와 Quartz 자동 close 충돌도 동일 메커니즘으로 해소. |
+| **장애 모델** | DB 가 죽으면 시스템이 죽는다. 추가 장애점 없음. | Redis 가 죽으면 락 자체 불가 → fallback 정책 필요. 장애점 +1. | **Redis 가 죽으면 신청·취소 API 자체 불가 (fail-closed).** 장애점 +1. 그러나 Redis 는 단일 노드 in-memory 라 운영상 가용성이 높고, 본 시스템 규모에서는 EC2 위에 백엔드와 같은 컨테이너 네트워크로 묶여 사실상 함께 다운된다. 별도 SPOF 등급은 사실상 추가되지 않는다. |
+| **공정성(FIFO)** | DB 락 큐는 FIFO 가 명시 보장되지 않는다. | `RLock` 비공정, `RFairLock` 사용 시 성능 손해. | **Redis 단일 스레드 직렬 실행 → 도착 순서 그대로 처리.** ZSET score 는 `appliedAtNanos` 이며 FIFO 가 자료구조 차원에서 강제된다. |
+| **성능 (단일 노드)** | row lock + INSERT 1 트랜잭션. 동시 신청자 수에 비례해 락 큐 길어지며 p99 선형 증가. | Redis 라운드트립 2회(lock, unlock) + DB 트랜잭션. **네트워크 hop 추가**. | **Redis 라운드트립 1회(Lua) + DB 라운드트립 1회(INSERT).** Lua 단계 sub-ms, DB INSERT ms 수준. 가장 빠르고 부하 증가에 따른 p99 둔화가 가장 완만. |
+| **운영 복잡도** | 익숙한 SQL. `pg_locks`, `pg_stat_activity` 모니터링. | Redisson + Redis 모니터링 + watchdog 동작 이해 필요. | Lua 디버깅 어려움. `EVALSHA` 캐시 미스 시 `EVAL` fallback. ZSET vs DB 정합성 모니터링 추가. |
+| **테스트 용이성** | `@Transactional` + Testcontainers PG. | Testcontainers Redis + RLock watchdog 통제 까다로움. | Testcontainers Redis + Lua 단위 테스트(스크립트 분리 verify). 보상 시나리오는 통합 테스트로 검증. |
+| **모듈러 모놀리스 적합성** | 매우 높음. | 중간. 수평 확장 보험. | **높음.** Redis 와 DB 가 같은 EC2 docker network 안에서 헬스 의존성이 합쳐져 있어 본 도메인의 정합성 모델을 손상시키지 않는다. 이중 표현은 reconcile 절차로 봉합. |
 
 ### 3.2 비교의 요지
 
-본 도메인의 본질은 **(a) `(classId)` 라는 좁은 키 단위 직렬화** 와 **(b) `appliedAt` FIFO 보장** 이다. (b) 를 충족시키려면 어떤 전략을 택하든 결국 PostgreSQL 의 row 와 인덱스를 만지게 되어 있다. 즉 Redis 를 동시성 제어의 1차 도구로 끌어와도 DB 트랜잭션을 피할 수 없고, **두 장치(Redis 락 + DB 트랜잭션)의 경계에서 새로운 정합성 문제** 가 생긴다.
+본 도메인의 본질은 **(a) `(classId)` 라는 좁은 키 단위 직렬화** 와 **(b) `appliedAt` FIFO 보장** 이다. (a) 는 Redis 단일 스레드가 직접적인 해답이고, (b) 는 Redis ZSET 의 score 가 자료구조 차원에서 보장한다.
 
-PostgreSQL 은 `SELECT FOR UPDATE` 와 `FOR UPDATE SKIP LOCKED` 라는, **본 시나리오(§2.1, §2.2) 에 정확히 들어맞는** 두 가지 도구를 이미 제공한다.
+대안 A (PG row lock) 는 두 요구를 모두 충족하지만 **락 큐가 사용자 부하에 비례해 선형 비용** 을 내고 **FIFO 가 락 매니저 구현에 의존하는 약점** 이 있다. 대안 C (ZSET + Lua) 는 (a) 와 (b) 를 자료구조와 단일 스레드 실행 모델 자체로 강제하며, race-critical path 의 라운드트립을 1회로 압축한다. 트레이드오프는 **이중 SoT (DB + Redis ZSET) 의 정합성 관리** 이고, 이를 **보상 Lua + 부팅 reconcile + partial unique index** 라는 3중 방어로 닫는다.
 
 ---
 
@@ -109,92 +114,114 @@ PostgreSQL 은 `SELECT FOR UPDATE` 와 `FOR UPDATE SKIP LOCKED` 라는, **본 �
 
 ### 4.1 결론
 
-**기본 전략은 PostgreSQL Pessimistic Lock (A) 이다. Redisson 분산 락 (B) 은 단일 JVM 외부에서 트리거되는 작업(스케줄러, 운영 도구) 의 mutual exclusion 으로만 보조 사용한다. Lua Script (C) 는 본 도메인에서 채택하지 않는다.**
+**기본 전략은 Redis ZSET + Lua Atomic Script (C) 이다.** PostgreSQL 은 영속화와 마지막 정합성 방어선(partial unique index, `@Version`) 으로 사용한다. Redisson `RLock` (B) 은 cache stampede 방어용 single-flight 등 race-non-critical 보조 용도로만 사용한다. DB Pessimistic Lock (A) 은 본 시스템의 critical path 에서 채택하지 않는다.
 
 ### 4.2 채택 근거
 
-1. **본 도메인의 critical section 은 반드시 DB row 를 만진다.** §2.1 의 잔여 정원 계산, §2.2 의 다음 WAITLISTED 선정은 모두 PostgreSQL 의 인덱스 스캔 + row write 다. Redis 락이나 Lua 카운터를 끼워 넣으면 "락 보호 구간"과 "실제 변경 구간" 이 두 시스템에 걸쳐 분리되고, 두 시스템 사이 커밋 실패 시점에 lost update 가 재현된다. Postgres 안에서 끝내는 것이 정합성 윈도우를 0 으로 만든다.
+1. **race-critical path 의 라운드트립을 1회로 압축**. §2.1 의 결정은 Lua 한 번에서 끝난다. PG row lock 은 락 획득 자체에 RTT 가 들고 락 큐가 사용자 부하에 비례해 선형 비용을 낸다. Lua 는 동시 신청자가 늘어나도 Redis 단일 스레드 처리 큐에 들어가는 동일한 sub-ms 비용을 낸다.
 
-2. **`FOR UPDATE SKIP LOCKED` 가 §2.2 의 교과서적 해답이다.** Redis 로 같은 동작을 구현하려면 ZSET 미러링 + Lua + DB 동기화 큐를 직접 만들어야 한다. 이는 표준 도구를 버리고 같은 동작을 다시 짜는 일이다.
+2. **FIFO 가 자료구조 차원에서 강제됨**. WAITLISTED 의 `appliedAt` 순서는 ZSET 의 score 가 그대로 보장한다. PG 의 락 큐에 FIFO 를 의존하는 것보다 명시적이고 가시적이다.
 
-3. **모듈러 모놀리스 + 단일 JVM 컨텍스트에서 Redis 분산 락은 과잉이다.** Redisson `RLock` 은 다중 인스턴스 간 mutex 가 필요할 때 가치를 갖는다. 현재 배포 단위가 단일 JVM 이라면 DB row lock 만으로 충분하며 장애점을 추가할 이유가 없다. 단, **다중 인스턴스로 수평 확장하는 미래** 에는 §2.4 같은 짧은 critical section 에 한해 `RLock` 도입을 검토한다.
+3. **§2.2 promotion 의 원자성이 단일 Lua 호출 안에서 끝남**. `ZREM enrolled` + `ZPOPMIN waitlist` + `ZADD enrolled` 가 한 원자 단위. 두 ZSET 사이 정합성 윈도우가 0 이며 double promotion / lost promotion 이 정의 불가. PG `SKIP LOCKED` 는 여전히 row lock 대기와 deadlock 회피 동작이 필요하다.
 
-4. **Lua Script 는 본 도메인에서 fit 하지 않는다.** 정원 카운터를 Redis 로 옮기면 (a) Redis 가 SoT 가 되어버려 DOCS §3.4 의 한 트랜잭션 한 Aggregate 원칙이 무너지고, (b) `appliedAt` FIFO 를 Redis ZSET 으로 이중관리해야 하며, (c) Redis 장애 시 정원 복구 절차가 필요해진다. 얻는 것은 ms 단위 성능, 잃는 것은 정합성 모델의 단순함. 트레이드오프가 맞지 않는다.
+4. **이중 SoT 는 3중 방어로 봉합**.
+   - (a) **보상 Lua** — Lua 성공 후 DB INSERT/UPDATE 실패 시 즉시 `enrollment_compensate.lua` 로 ZSET 갱신을 되돌린다.
+   - (b) **부팅 reconcile + admin endpoint** — 어떤 경로로든 ZSET 이 어긋날 가능성을 가정하고, 부팅 시점에 항상 DB → ZSET 재구성 절차를 통과한다. 운영 중 의심 시 `POST /api/admin/reconcile/{classId}` 로 강제 재구성 가능.
+   - (c) **DB partial unique index** — `(class_id, classmate_id) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED')` 가 DB 차원에서 활성 신청 중복을 거부.
 
-5. **성능 한계는 측정 후 결정.** 현 단계에서 p99 응답 시간 SLA(예: 200ms) 가 PostgreSQL row lock 으로 달성 불가하다는 측정 근거는 없다. 측정 없이 Redis 카운터로 도망가는 것은 premature optimization 이다.
+5. **단일 EC2 + docker network 환경에서 Redis 와 DB 의 가용성 등급이 사실상 동일**. Redis SPOF 추가는 본 배포 모델에서 운영 위험이 미미하다.
 
 ### 4.3 시나리오별 적용 매핑
 
 | 시나리오 | 메커니즘 | 비고 |
 |---------|---------|------|
-| §2.1 마지막 자리 | `Class` row 에 `SELECT ... FOR UPDATE` (`classId` PK 기준). 트랜잭션 안에서 `COUNT(*) FROM enrollment WHERE classId=? AND status IN ('PENDING','CONFIRMED')` 후 분기. | 락 보유 시간을 짧게 유지하기 위해 `Class` 의 `capacity` 만 읽고 unrelated 필드는 가져오지 않는다. |
-| §2.2 대기열 승격 | (1) Cancel 트랜잭션 안에서 `Class` row FOR UPDATE 로 직렬화. (2) `SELECT ... FROM enrollment WHERE classId=? AND status='WAITLISTED' ORDER BY appliedAt LIMIT 1 FOR UPDATE SKIP LOCKED` 로 다음 후보 잠금. (3) UPDATE 후 `WaitlistPromotedEvent` 발행. | 동일 트랜잭션 안에서 처리하므로 `EnrollmentCancelledEvent → WaitlistPromotion` 은 in-process 이벤트로 같은 트랜잭션에서 실행한다(별도 메시지 큐 불필요). |
-| §2.3 7일 창 | `Enrollment` row 에 `@Version` optimistic lock. `cancel()` 메서드 안에서 `paidAt + 7d` 비교. 충돌 시 한 번 재시도, 그래도 실패하면 사용자에게 5xx 가 아닌 idempotent 응답. | 같은 Enrollment 에 동시 cancel 요청은 사실상 더블 클릭 케이스이며 빈도가 낮으므로 optimistic 이 적합. |
-| §2.4 상태 전이 | `Class` 에 `@Version`. Creator 가 같은 전이를 두 번 트리거해도 한 번만 성공. | 멱등 응답 매핑은 application service 책임. |
+| §2.1 마지막 자리 | `enrollment_apply.lua` 호출. KEYS=[`enrolled:{classId}`, `waitlist:{classId}`, `class:status:{classId}`], ARGV=[`capacity`, `classmateId`, `appliedAtNanos`]. 반환값 `PENDING` / `WAITLISTED` / `DUPLICATE_ACTIVE` / `CLASS_NOT_FOUND_IN_MIRROR` / `CLASS_NOT_OPEN`. application service 가 반환값에 따라 DB `INSERT` 실행. | Lua 안에서 `GET class:status` 검사 + `ZSCORE enrolled/waitlist` 중복 검사 + `ZCARD enrolled < capacity` 분기. score 는 `appliedAtNanos` (uint64). |
+| §2.2 대기열 승격 | `enrollment_cancel_promote.lua` 호출. KEYS=[`enrolled:{classId}`, `waitlist:{classId}`], ARGV=[`classmateId`, `wasConfirmed(0/1)`]. 반환값 `null` 또는 `{promotedClassmateId, promotedScoreNanos}`. application service 가 반환값에 따라 promoted Enrollment 의 DB 상태를 `WAITLISTED → PENDING` 으로 UPDATE. | `wasConfirmed == 0` 이면 `ZREM enrolled` 만 한다. `wasConfirmed == 1` 이면 `ZREM` + `ZPOPMIN waitlist` 시도 후 결과를 `ZADD enrolled`. 단일 원자. |
+| §2.3 7일 창 | application service 가 비즈니스 로직으로 처리. `Enrollment.cancel(now)` 안에서 `CONFIRMED` 인 경우 `paidAt + Duration.ofDays(7) >= now` 검증. `@Version` optimistic lock 으로 동시 cancel 두 건 중 한 건만 성공. | Lua 는 7일 정책을 모르며 관여하지 않는다. ZSET 갱신은 DB UPDATE 성공 후 `enrollment_cancel_promote.lua` 에서 발생. |
+| §2.4 상태 전이 (수동 + 자동) | `Class` 에 `@Version`. 상태 전이 application service 가 성공 후 `RedisTemplate.opsForValue().set("class:status:{id}", newStatus, TTL)` 로 mirror 갱신. Quartz `ClassAutoCloseJob` 도 같은 application service 의 `close()` 메서드를 호출하므로 동일 경로로 처리된다. | `enrollment_apply.lua` 가 mirror 를 `GET` 으로 검증. mirror 미존재 시 application service 가 DB 조회 후 mirror 채우고 Lua 재시도. |
 
-### 4.4 락 키 컨벤션과 보유 시간
+### 4.4 Lua 스크립트·키 컨벤션과 보유 시간
 
-- **PostgreSQL row lock** — Aggregate Root row 자체를 잠근다. 별도 advisory lock 은 사용하지 않는다(트랜잭션 종료와 함께 자동 해제되는 것이 운영상 안전).
-- **Redisson RLock 보조 사용** — 향후 도입 시 키 컨벤션 `lock:class:{classId}` / `lock:enrollment:{enrollmentId}`. `tryLock(waitTime=200ms, leaseTime=3s)` 를 기본값으로 한다. leaseTime > 트랜잭션 평균 + 표준편차 * 3 을 만족해야 한다.
-- **트랜잭션 시간 상한** — Class 락을 잡은 트랜잭션은 100ms 이내에 종료한다. 외부 호출(결제, 알림) 은 트랜잭션 밖에서 처리.
+- **Lua 스크립트 캐싱** — Spring Data Redis `RedisScript<List>` 로 classpath 로딩(`src/main/resources/lua/*.lua`). `EVALSHA` 로 실행하며 `NOSCRIPT` 오류 시 `EVAL` fallback (Lettuce 자동 처리).
+- **키 네이밍** —
+  - `enrolled:{classId}` — Sorted Set. score=`appliedAtNanos`, member=`classmateId(UUID 문자열)`. PENDING + CONFIRMED 미러.
+  - `waitlist:{classId}` — Sorted Set. score=`appliedAtNanos`, member=`classmateId`. WAITLISTED 미러.
+  - `class:status:{classId}` — String. value=`DRAFT|OPEN|CLOSED`, TTL=300s. Lua 가 status 검사용으로 GET.
+  - `class:detail:{classId}` — String (JSON). Spring `@Cacheable` 로 관리되는 cache-aside 데이터.
+  - `class:enrolledCount:{classId}` — String (int). 표시용 카운터. TTL 60s. 결정에 사용하지 않는다.
+  - `lock:cache:class:{classId}:detail` — Redisson RLock. cache stampede single-flight 보조용 (유일한 Redisson 사용처).
+- **EVALSHA 캐시** — Redis 재시작 시 스크립트 캐시가 사라지므로 부팅 직후 첫 호출에서 한 번 `EVAL` 이 발생할 수 있다. Lettuce 가 투명 처리.
+- **Lua 보유 시간** — Lua 는 락 매니저가 아니며 락 보유 개념이 없다. 한 호출의 wall-clock 은 sub-ms (대부분 100µs 미만). 한 스크립트의 명령 수는 10 이하로 유지한다.
+- **DB 트랜잭션 상한** — Lua 결정 직후 application 트랜잭션은 100ms 이내에 종료. 외부 호출(mock 결제, 알림) 은 트랜잭션 밖에서 처리.
 
 ---
 
-## 5. Redis Caching Layer
+## 5. Redis Caching & Mirror Layer
 
-Redis 는 본 시스템에서 **(a) 강의 상세 조회 캐시** 와 **(b) 향후 분산 락** 두 목적으로만 사용한다. 영속 상태의 권위를 가지지 않는다.
+Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
 
-### 5.1 캐시 대상과 비대상
+| 역할 | 정의 | 예 |
+|------|------|----|
+| **Mirror (Aggregate Index)** | DB 의 Enrollment 활성 신청 집합을 ZSET 으로 미러링. **결정의 1차 게이트**. 데이터 유실 시 부팅 reconcile 로 복구. | `enrolled:{classId}` (ZSET), `waitlist:{classId}` (ZSET) |
+| **Cache (Read-aside Snapshot)** | DB 조회 결과의 스냅샷. **결정에 사용하지 않음**. 데이터 유실 시 다음 조회 시 자연 재계산. | `class:detail:{classId}`, `class:enrolledCount:{classId}`, `class:status:{classId}` |
 
-| 데이터 | 캐시? | 이유 |
+두 역할은 **운영상 등급이 다르다**. Mirror 의 정합성 위반은 즉시 알림 대상이지만 Cache 의 stale 은 정책 수용 범위 안의 정상 동작이다.
+
+### 5.1 데이터 분류
+
+| 데이터 | 분류 | 이유 |
 |--------|------|------|
-| `Class` 메타데이터(title, description, price, period, status) | **예** | 읽기 비율이 압도적으로 높고 변경 빈도가 낮다. |
-| `Class.capacity` (정수) | **예** | 메타데이터의 일부. |
-| `현재 enrolled count` (PENDING + CONFIRMED 합) | **조건부 — 캐시는 하지만 결정에 사용하지 않음** | 표시 목적으로만 캐시하고 §2.1 의 정원 차감 결정에는 **절대 사용하지 않는다**. 결정은 DB row lock 안에서만 한다. |
-| `Enrollment` 개별 row | **아니오** | 사용자 본인의 신청 상태이며 캐시 적중률이 낮다. |
-| `대기열 순위` | **아니오** | DB 의 `ORDER BY appliedAt` 결과를 매번 계산. 캐시 무효화 복잡도가 이득을 초과. |
+| 활성 Enrollment 집합 (`PENDING + CONFIRMED + WAITLISTED`) | **Mirror** | §2.1·§2.2 결정의 입력. Lua 가 직접 read-modify-write. |
+| `Class` 메타데이터(title, description, price, period, status) | **Cache** | 읽기 비율이 압도적으로 높고 변경 빈도가 낮다. |
+| `Class.status` 단독 미러 (`class:status:{id}`) | **Cache (특수 단축형)** | `enrollment_apply.lua` 가 status 검사용으로 GET. miss 시 application service 가 DB → mirror 채움. |
+| 현재 enrolled count 표시용 | **Cache** | UX 표시. 결정에 사용 금지. |
+| `Enrollment` 개별 row | **사용하지 않음** | 사용자 본인 데이터, 캐시 적중률 낮음. |
+| 대기열 순위 | **Mirror 의 부산물** | `ZRANK waitlist:{classId} {classmateId}` 로 조회 가능. 별도 캐시 불요. |
 
 ### 5.2 Key 네이밍 컨벤션
 
-| Key | Type | TTL | 용도 |
-|-----|------|-----|------|
-| `class:{classId}:detail` | String (JSON) | 300s | 강의 상세 응답 본체. |
-| `class:{classId}:enrolledCount` | String (int) | 60s | 표시용 카운터. 신뢰 경계 아님. |
-| `lock:class:{classId}` | Redisson RLock | leaseTime | 향후 분산 락 도입 시 예약. |
+| Key | Type | TTL | 역할 | 갱신 트리거 |
+|-----|------|-----|------|------------|
+| `enrolled:{classId}` | ZSET | 영구 (재구성으로 보정) | Mirror | `enrollment_apply.lua`, `enrollment_cancel_promote.lua`, reconcile |
+| `waitlist:{classId}` | ZSET | 영구 | Mirror | 위와 동일 |
+| `class:status:{classId}` | String | 300s | Cache (Lua 입력) | Class 상태 전이 application service (수동 + Quartz 자동) |
+| `class:detail:{classId}` | String (JSON) | 300s | Cache | `@Cacheable` 인터셉터 |
+| `class:enrolledCount:{classId}` | String (int) | 60s | Cache | 표시용 |
+| `lock:cache:class:{classId}:detail` | Redisson RLock | leaseTime 1s | Cache stampede single-flight 보조 | Cache miss 시 |
 
 키는 모두 소문자, `:` 구분자, `{변수}` 는 UUID 문자열 형태로 통일한다.
 
-### 5.3 무효화 전략
+### 5.3 무효화 / 갱신 전략
 
-**Write-through 가 아닌 Cache-aside + 도메인 이벤트 기반 invalidation** 을 사용한다.
+**Mirror** — Lua 가 직접 갱신한다. 별도 무효화 이벤트가 없다(Lua 가 곧 갱신 자체).
+
+**Cache** — Cache-aside + 도메인 이벤트 기반 invalidation. `@TransactionalEventListener(phase = AFTER_COMMIT)` 단계에서 실행한다.
 
 | 트리거 이벤트 | 무효화 대상 |
 |------------|------------|
-| `ClassOpenedEvent`, `ClassClosedEvent` | `class:{classId}:detail` DEL |
-| `Class.changeCapacity` (DRAFT only) | `class:{classId}:detail` DEL |
-| `EnrollmentCreatedEvent` | `class:{classId}:enrolledCount` DEL (다음 조회 시 재계산) |
-| `EnrollmentConfirmedEvent` | `class:{classId}:enrolledCount` DEL |
-| `EnrollmentCancelledEvent` | `class:{classId}:enrolledCount` DEL |
-| `WaitlistPromotedEvent` | `class:{classId}:enrolledCount` DEL |
-
-무효화는 **트랜잭션 커밋 이후**(`@TransactionalEventListener(phase = AFTER_COMMIT)`) 에 실행한다. 커밋 전 무효화는 트랜잭션 롤백 시 캐시 incoherence 를 만든다.
+| `ClassOpenedEvent`, `ClassClosedEvent` | `class:detail:{classId}` DEL + `class:status:{classId}` SET(new status) |
+| `Class.changeCapacity` (DRAFT only) | `class:detail:{classId}` DEL |
+| `EnrollmentCreatedEvent` | `class:enrolledCount:{classId}` DEL |
+| `EnrollmentConfirmedEvent` | `class:enrolledCount:{classId}` DEL |
+| `EnrollmentCancelledEvent` | `class:enrolledCount:{classId}` DEL |
+| `WaitlistPromotedEvent` | `class:enrolledCount:{classId}` DEL |
 
 ### 5.4 Stale Read 정책
 
-- **강의 상세 조회** — 최대 300초 stale 을 허용한다. UI 상의 가격·정원 표시가 5분 지연되어도 비즈니스 영향이 없다.
-- **enrolledCount** — 최대 60초 stale 을 허용한다. "현재 X 명이 신청 중" 표시용이며, 사용자가 화면에서 본 숫자와 실제 잔여 정원이 다를 수 있다는 점을 UX 에서 수용한다.
-- **신청 가능 여부 판정** — 캐시를 **신뢰하지 않는다**. UI 가 "신청 가능" 으로 보였더라도 실제 INSERT 는 §4.3 의 DB row lock 으로 결정된다. 화면 표시와 실제 결과 불일치는 "마감되었습니다" 응답으로 자연스럽게 해소.
+- **강의 상세 조회** — 최대 300초 stale 허용.
+- **enrolledCount** — 최대 60초 stale 허용. 표시용.
+- **신청 가능 여부 판정** — 캐시를 **신뢰하지 않는다**. UI 가 "신청 가능" 으로 보였더라도 실제 결정은 `enrollment_apply.lua` 가 한다.
 
 ### 5.5 Cache Stampede 방어
 
 - 인기 강의 캐시가 동시에 만료되면 같은 키에 대해 다수 요청이 DB 로 몰린다.
-- 방어책 — 캐시 미스 시 Redisson `RLock` 으로 **재계산 단일화** 를 적용(`lock:cache:class:{classId}:detail`, leaseTime 1s). 락 미획득 시 약간의 stale 값을 그대로 반환하거나 짧은 backoff 후 재조회.
+- 방어책 — 캐시 미스 시 Redisson `RLock` 으로 재계산 단일화(`lock:cache:class:{classId}:detail`, leaseTime 1s). 락 미획득 시 짧은 backoff 후 재조회.
 
 ---
 
 ## 6. End-to-End Request Flows
 
-### 6.1 `POST /enrollments` — race-safe last-seat allocation
+### 6.1 `POST /enrollments` — race-safe last-seat allocation (Lua-first)
 
 ```mermaid
 sequenceDiagram
@@ -202,6 +229,7 @@ sequenceDiagram
     participant C as Client
     participant API as EnrollmentController
     participant App as EnrollmentApplicationService
+    participant Lua as Redis (enrollment_apply.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
     participant Cache as Redis Cache
@@ -209,45 +237,52 @@ sequenceDiagram
     C->>API: POST /enrollments {classId} (X-User-Id)
     API->>App: apply(classId, classmateId)
 
-    rect rgb(240, 240, 240)
-    note over App,DB: TX begin (READ COMMITTED)
-    App->>DB: SELECT * FROM class WHERE id=? FOR UPDATE
-    DB-->>App: Class(status, capacity)
-    alt status != OPEN
+    App->>Lua: EVALSHA enrollment_apply.lua\nKEYS=[enrolled:{c}, waitlist:{c}, class:status:{c}]\nARGV=[capacity, classmateId, appliedAtNanos]
+    Note right of Lua: GET class:status -> "OPEN" 검사<br/>ZSCORE enrolled/waitlist -> 중복 검사<br/>ZCARD enrolled < capacity ?<br/>enrolled ZADD : waitlist ZADD
+    Lua-->>App: "PENDING" | "WAITLISTED" | "DUPLICATE_ACTIVE" | "CLASS_NOT_FOUND" | "CLASS_NOT_OPEN"
+
+    alt result == DUPLICATE_ACTIVE
+        App-->>API: DomainException(DuplicateEnrollment)
+        API-->>C: 409 Conflict
+    else result == CLASS_NOT_FOUND
+        App->>DB: SELECT * FROM class WHERE id=?
+        alt class exists & OPEN
+            App->>Cache: SET class:status:{c} = "OPEN"
+            App->>Lua: 재시도 1회 (동일 KEYS/ARGV)
+        else 아예 존재 안 함
+            App-->>API: 404
+        end
+    else result == CLASS_NOT_OPEN
         App-->>API: DomainException(ClassNotOpen)
         API-->>C: 409 Conflict
-    else status == OPEN
-        App->>DB: SELECT id FROM enrollment WHERE classId=? AND classmateId=? AND status IN (PENDING,CONFIRMED,WAITLISTED)
-        alt 활성 신청 이미 존재
-            App-->>API: DomainException(DuplicateEnrollment)
-            API-->>C: 409 Conflict
-        else 없음
-            App->>DB: SELECT count(*) FROM enrollment WHERE classId=? AND status IN (PENDING,CONFIRMED)
-            DB-->>App: currentCount
-            alt currentCount < capacity
-                App->>DB: INSERT enrollment(status=PENDING, appliedAt=now)
-                note right of App: TX commit
-                App->>Bus: EnrollmentCreatedEvent(PENDING) [AFTER_COMMIT]
-                Bus->>Cache: DEL class:{classId}:enrolledCount
-                App-->>API: EnrollmentDto(PENDING)
+    else result in {PENDING, WAITLISTED}
+        rect rgb(240, 240, 240)
+        note over App,DB: TX begin (READ COMMITTED, timeout 2s)
+        App->>DB: INSERT enrollment(status=result, appliedAt=now)
+        alt INSERT 성공
+            note right of App: TX commit
+            App->>Bus: EnrollmentCreatedEvent(status) [AFTER_COMMIT]
+            Bus->>Cache: DEL class:enrolledCount:{c}
+            App-->>API: EnrollmentDto(result)
+            alt result == PENDING
                 API-->>C: 201 Created
-            else 정원 초과
-                App->>DB: INSERT enrollment(status=WAITLISTED, appliedAt=now)
-                note right of App: TX commit
-                App->>Bus: EnrollmentCreatedEvent(WAITLISTED) [AFTER_COMMIT]
-                App-->>API: EnrollmentDto(WAITLISTED)
+            else result == WAITLISTED
                 API-->>C: 202 Accepted
             end
+        else INSERT 실패
+            App->>Lua: EVAL enrollment_compensate.lua (ZREM enrolled/waitlist)
+            App-->>API: 5xx 또는 409 (원인별 매핑)
         end
-    end
+        end
     end
 ```
 
 핵심 포인트.
 
-- (3) `Class` row 의 FOR UPDATE 가 `(classId)` 단위 직렬화의 전부다. 다른 클래스 신청에는 영향이 없다.
-- (4) 활성 신청 중복 검사는 같은 트랜잭션 안에서 한다. 별도 락 없이 row 가 잠겨있으므로 phantom insert 가능성은 해당 `(classId, classmateId)` 조합에 대해 unique index 로 추가 방어한다(`UNIQUE (classId, classmateId) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED')` — partial index).
-- (8) PENDING 또는 WAITLISTED INSERT 후 트랜잭션을 즉시 커밋. 이벤트 발행은 AFTER_COMMIT 단계.
+- (3) Lua 한 번의 호출에 §2.1 의 race 결정과 §2.4 의 status 검사가 모두 들어 있다. application service 는 Lua 결정을 받아 DB 영속화만 담당.
+- (10–11) `CLASS_NOT_FOUND` 는 `class:status` mirror 미존재 케이스. application service 가 DB 로 fallback 후 Lua 재시도. 처음 신청 또는 캐시 TTL 만료 직후에만 발생.
+- (15) Lua 성공 후 DB INSERT 실패 시 즉시 보상 Lua 호출. 보상 Lua 자체가 또 실패하면 부팅 시 reconcile 로 정정.
+- (16–18) AFTER_COMMIT 단계에서 도메인 이벤트 + 캐시 evict. ZSET 미러는 Lua 가 이미 갱신해두었으므로 별도 처리 불요.
 
 ### 6.2 `POST /enrollments/{id}/confirm-payment` — mock 결제
 
@@ -257,22 +292,21 @@ sequenceDiagram
     participant C as Client
     participant API as PaymentController
     participant App as PaymentApplicationService
+    participant Pay as MockPaymentGateway
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
 
     C->>API: POST /enrollments/{id}/confirm-payment
-    API->>App: confirm(enrollmentId)
-
+    API->>App: confirm(enrollmentId, classmateId)
+    App->>Pay: charge() -> success
     rect rgb(240, 240, 240)
     note over App,DB: TX begin
     App->>DB: SELECT * FROM enrollment WHERE id=? (with @Version)
-    DB-->>App: Enrollment(status, version)
     alt status != PENDING
         App-->>API: DomainException(NotPending)
-        API-->>C: 409 Conflict
+        API-->>C: 409
     else status == PENDING
-        App->>App: mockPaymentGateway.charge() -> success
-        App->>DB: UPDATE enrollment SET status='CONFIRMED', paidAt=now, version=version+1 WHERE id=? AND version=?
+        App->>DB: UPDATE enrollment SET status='CONFIRMED', paidAt=now, version=version+1
         alt UPDATE rows = 0 (낙관적 충돌)
             App-->>API: OptimisticLockException -> retry 1회
         else 성공
@@ -287,10 +321,10 @@ sequenceDiagram
 
 핵심 포인트.
 
-- mock 결제는 실제 PG 호출이 아니지만 **외부 호출이라고 가정** 하고 트랜잭션 밖에 둔다(2). 실제 구현 시 트랜잭션을 시작하기 전에 결제 결과를 받아두고, 트랜잭션 안에서는 상태 전이만 한다.
-- 본 흐름은 `Class` 락을 잡지 않는다. PENDING → CONFIRMED 는 잔여 정원에 영향을 주지 않기 때문이다(이미 PENDING 시점에 자리가 차감된 상태).
+- **ZSET 갱신 없음**. `enrolled` ZSET 은 PENDING 과 CONFIRMED 를 한 집합으로 다루므로 PENDING → CONFIRMED 전이는 ZSET 멤버십에 영향이 없다. DB UPDATE 만.
+- mock 결제는 트랜잭션 밖.
 
-### 6.3 `DELETE /enrollments/{id}` — cancel + waitlist promotion
+### 6.3 `DELETE /enrollments/{id}` — cancel + waitlist promotion (Lua-atomic ZSET swap)
 
 ```mermaid
 sequenceDiagram
@@ -298,60 +332,60 @@ sequenceDiagram
     participant C as Client
     participant API as EnrollmentController
     participant App as EnrollmentApplicationService
+    participant Lua as Redis (enrollment_cancel_promote.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
     participant Cache as Redis Cache
 
     C->>API: DELETE /enrollments/{id}
-    API->>App: cancel(enrollmentId)
+    API->>App: cancel(enrollmentId, classmateId, now)
 
     rect rgb(240, 240, 240)
     note over App,DB: TX begin
-    App->>DB: SELECT * FROM enrollment WHERE id=? FOR UPDATE
-    DB-->>App: Enrollment(status, classId, paidAt)
-
-    alt status == CANCELLED
-        App-->>API: 멱등 응답
-        API-->>C: 200 OK
-    else status == CONFIRMED and now > paidAt + 7d
-        App-->>API: DomainException(OutsideCancellationWindow)
-        API-->>C: 422 Unprocessable
+    App->>DB: SELECT * FROM enrollment WHERE id=? (with @Version)
+    DB-->>App: Enrollment(status, classId, paidAt, version)
+    alt classmateId != owner
+        App-->>API: 403
+    else status == CANCELLED
+        App-->>API: 200 (멱등)
+    else status == CONFIRMED && now > paidAt + 7d
+        App-->>API: 422 OutsideCancellationWindow
     else 취소 가능
-        App->>DB: SELECT * FROM class WHERE id=? FOR UPDATE
-        note right of DB: §2.2 직렬화 진입
-        App->>DB: UPDATE enrollment SET status='CANCELLED', cancelledAt=now WHERE id=?
+        App->>DB: UPDATE enrollment SET status='CANCELLED', cancelledAt=now, version=version+1
+        alt UPDATE rows = 0 (동시 cancel)
+            App-->>API: 멱등 200
+        else 성공
+            App->>Lua: EVALSHA enrollment_cancel_promote.lua\nKEYS=[enrolled:{c}, waitlist:{c}]\nARGV=[classmateId, wasConfirmed(0/1)]
+            Note right of Lua: ZREM enrolled<br/>if wasConfirmed: ZPOPMIN waitlist<br/>  if popped: ZADD enrolled (promoted)<br/>return null or {promotedId, score}
+            Lua-->>App: null | {promotedClassmateId, score}
 
-        alt previousStatus == CONFIRMED
-            App->>DB: SELECT * FROM enrollment WHERE classId=? AND status='WAITLISTED' ORDER BY appliedAt ASC LIMIT 1 FOR UPDATE SKIP LOCKED
-            alt 후보 존재
-                App->>DB: UPDATE enrollment SET status='PENDING' WHERE id=?
-                note right of App: TX commit
-                App->>Bus: EnrollmentCancelledEvent [AFTER_COMMIT]
-                App->>Bus: WaitlistPromotedEvent [AFTER_COMMIT]
-                Bus->>Cache: DEL class:{classId}:enrolledCount
-            else 후보 없음
-                note right of App: TX commit
-                App->>Bus: EnrollmentCancelledEvent [AFTER_COMMIT]
-                Bus->>Cache: DEL class:{classId}:enrolledCount
+            alt Lua returned promoted
+                App->>DB: UPDATE enrollment SET status='PENDING' WHERE classId=? AND classmateId=? AND status='WAITLISTED'
+                alt DB UPDATE 실패
+                    App->>Lua: enrollment_compensate.lua reverse (promoted 를 waitlist 로 복귀)
+                    App-->>API: 5xx
+                end
             end
-        else previousStatus != CONFIRMED
-            note right of App: TX commit (승격 없음)
-            App->>Bus: EnrollmentCancelledEvent [AFTER_COMMIT]
-        end
 
-        App-->>API: EnrollmentDto(CANCELLED)
-        API-->>C: 200 OK
+            note right of App: TX commit
+            App->>Bus: EnrollmentCancelledEvent [AFTER_COMMIT]
+            alt promoted 존재
+                App->>Bus: WaitlistPromotedEvent [AFTER_COMMIT]
+            end
+            Bus->>Cache: DEL class:enrolledCount:{c}
+            App-->>API: EnrollmentDto(CANCELLED)
+            API-->>C: 200 OK
+        end
     end
     end
 ```
 
 핵심 포인트.
 
-- (3) Enrollment row 를 FOR UPDATE 로 잡아 §2.3 의 동시 cancel 중복을 방지.
-- (8) Class row 를 FOR UPDATE 로 잡아 §2.2 의 다른 cancel 트랜잭션과 직렬화. 이로써 같은 강의의 두 cancel 이 동시에 실행되어도 정확히 자리 수만큼만 승격이 일어난다.
-- (10) `FOR UPDATE SKIP LOCKED` 는 본 흐름에서는 사실상 단일 후보를 잠그는 정상 락처럼 동작한다. 다중 cancel 이 동시에 일어날 때 한 cancel 의 후보 락이 다른 cancel 에 의해 막혀 wait 하는 대신 다음 후보로 건너뛸 수 있도록 한 안전장치다.
-- (11) 후보 UPDATE 까지 같은 트랜잭션 안에서 수행. cancel 과 promotion 이 하나의 원자 단위.
-- 이벤트 발행은 모두 AFTER_COMMIT. 트랜잭션 롤백 시 외부에 잘못된 이벤트가 새지 않는다.
+- (4) DB SELECT 는 `FOR UPDATE` 없이 `@Version` 만 본다. 동시 cancel 두 건은 한 건만 UPDATE rows=1, 다른 한 건은 rows=0 → 멱등 200.
+- (10) 단일 Lua 호출이 `ZREM enrolled` + (`ZPOPMIN waitlist` + `ZADD enrolled`) 를 원자 swap. 두 ZSET 사이 정합성 윈도우 0.
+- (12) 승격된 enrollment 의 DB UPDATE 실패 시 보상 Lua 가 ZSET 을 반대로 되돌린다.
+- (16–17) 이벤트 발행은 모두 AFTER_COMMIT.
 
 ---
 
@@ -359,43 +393,92 @@ sequenceDiagram
 
 ### 7.1 Redis 다운
 
-- **영향** — 강의 상세 조회 캐시 미스. 캐시 stampede 방어 락(§5.5) 도 동작 불가.
-- **대응** — Redis 클라이언트(Lettuce/Redisson)에 짧은 타임아웃(200ms) 과 circuit breaker 설정. Redis 호출 실패 시 캐시를 **bypass** 하고 직접 DB 조회로 fallback. 캐시 무효화 실패는 로그만 남기고 흘려보낸다(다음 만료 시점에 자연 정정).
-- **금지** — Redis 가 죽었다고 신청 API 자체를 거부하지 않는다. 동시성 제어가 DB row lock 으로 닫혀 있기 때문에 Redis 부재는 정합성에 영향이 없다. 이것이 §4.2 (3) 의 핵심 가치.
+- **영향** — 모든 신청·취소 API 가 즉시 실패한다. 강의 상세 조회는 캐시 미스로 DB 직행.
+- **정책 — Fail-closed**. Lua 호출 실패 시 application service 는 **즉시 503** 을 반환한다. DB 만으로 결정하는 fallback 경로를 두지 않는다.
+- **복구** — Redis 가 다시 살아나면 §7.7 의 reconcile 절차가 부팅 시점에 ZSET 을 재구성한다.
 
 ### 7.2 PostgreSQL 연결 끊김
 
-- **영향** — 모든 쓰기 API 실패. SoT 다운은 시스템 다운과 동의어.
-- **대응** — Spring 의 connection pool(HikariCP) 의 `connectionTimeout` 을 짧게(2s), 헬스체크 활성화. 끊김이 감지되면 503 을 반환하고 client 가 재시도하도록 한다. 비동기 이벤트 컨슈머는 retry + DLQ.
-- **데이터 손실 방지** — `EnrollmentConfirmedEvent` 등이 AFTER_COMMIT 단계에서 발행되는 구조이므로, 트랜잭션이 커밋되지 못한 신청은 외부에 노출되지 않는다. 트랜잭션 커밋 후 이벤트 발행 사이에 JVM 이 죽으면 이벤트 유실 위험이 있다. **본 모놀리스 단계에서는 in-process 이벤트만 사용** 하고 외부 시스템 연동 시점에 Transactional Outbox 패턴 도입을 검토한다(현재 범위 외).
+- **영향** — 모든 쓰기 API 실패. SoT 다운은 시스템 다운.
+- **대응** — HikariCP `connectionTimeout` 2s, 헬스체크 활성화. 끊김 시 503.
+- **데이터 손실 방지** — Lua 가 ZSET 갱신을 마쳤는데 DB INSERT/UPDATE 가 실패한 경우 보상 Lua 가 즉시 ZSET 을 되돌린다. 보상마저 실패하면 부팅 reconcile.
 
-### 7.3 락 leak / 장기 트랜잭션
+### 7.3 장기 트랜잭션
 
-- **위험** — `SELECT FOR UPDATE` 를 잡은 트랜잭션이 외부 I/O 로 늘어지면 같은 `(classId)` 의 모든 신청이 대기 큐에 쌓인다.
-- **대응** — 트랜잭션 안에서 **외부 호출 금지** 를 코드 레벨로 강제(아키텍처 테스트로 검증). statement timeout 을 PostgreSQL 레벨에서 `SET LOCAL statement_timeout = '500ms'` 로 설정. 락 holding 시간이 임계치(예: 200ms) 를 넘으면 경보.
-- **모니터링** — `pg_stat_activity.wait_event_type = 'Lock'` 행 수, `pg_locks` 의 granted=false 행 수를 메트릭으로 노출.
+- **위험** — application service 안에서 외부 I/O 로 인한 트랜잭션 지연.
+- **대응** — 외부 호출 금지 코드 레벨 강제. `SET LOCAL statement_timeout = '500ms'`. 트랜잭션 평균 + 3σ 모니터링.
+- **모니터링** — `pg_stat_activity` long-running TX, Lua 실행 시간 (`SLOWLOG`), 보상 Lua 호출 빈도.
 
-### 7.4 Redisson 분산 락 — clock skew 및 lease 만료
+### 7.4 Lua 스크립트 실행 실패
 
-(보조 사용 시 한정.)
-
-- **위험** — Redisson `RLock` 은 lease TTL 기반이다. 보유 노드가 GC pause 등으로 멈춘 사이 TTL 만료 → 다른 노드가 같은 락을 획득 → 동시에 두 노드가 critical section 진입.
-- **대응** — `RLock` 만으로는 보호 못하므로 **DB row lock 을 마지막 방어선** 으로 항상 둔다(본 설계는 이미 그러함). 즉 Redisson 락이 lease 만료로 풀리더라도 DB 가 직렬화를 보장한다.
-- **추가 방어** — JVM GC 튜닝(G1 / ZGC) 으로 stop-the-world 를 lease 보다 짧게 유지. lease 는 트랜잭션 평균 + 3σ + 안전마진으로 설정.
+- **위험** — `@noscript`, 문법 오류, 잘못된 KEYS/ARGV. 또는 cluster slot 분산.
+- **대응** — CI 단계에서 Testcontainers Redis 로 모든 Lua `EVAL` 검증. `@noscript` 는 Lettuce 가 `EVAL` fallback. 단일 노드 Redis 만 사용하므로 cross-slot 문제는 발생 안 함. cluster 전환 시 keys 에 `{classId}` hash tag 적용.
 
 ### 7.5 멱등성과 재시도
 
-- **client 재시도** — 네트워크 단절로 client 가 같은 `POST /enrollments` 를 두 번 보낼 수 있다. partial unique index `(classId, classmateId) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED')` 가 중복 INSERT 를 DB 레벨에서 거부 → application 에서 `DuplicateEnrollment` 도메인 예외로 변환 → client 에는 기존 신청 정보 반환(409).
-- **이벤트 핸들러 재시도** — `@TransactionalEventListener` 핸들러 안에서 예외가 발생해도 트랜잭션 커밋은 영향받지 않는다. 캐시 무효화 같은 보조 작업은 실패해도 다음 TTL 만료로 자연 정정.
+- **client 재시도** — Lua 가 `DUPLICATE_ACTIVE` 거부 + partial unique index 가 DB 차원의 마지막 방어선.
+- **cancel 동시 도착** — `@Version` 으로 한 건만 성공, 다른 건은 멱등 200.
+- **이벤트 핸들러 재시도** — `@TransactionalEventListener` 핸들러 안의 예외는 트랜잭션 커밋에 영향을 주지 않는다.
 
-### 7.6 정합성 검증 배치
+### 7.6 정합성 검증 (Continuous)
 
-- **주기** — 일 1회 새벽.
-- **검증 항목**
-  1. `Class.capacity >= COUNT(enrollment WHERE classId=? AND status IN ('PENDING','CONFIRMED'))` — 정원 초과 감지.
-  2. `(classId, classmateId)` 별 활성 신청 1건 이하.
-  3. `CONFIRMED` Enrollment 의 `paidAt` non-null.
-- **위반 발견 시** — 알림만 발송하고 자동 수정하지 않는다. 자동 수정은 도메인 의미를 모르는 수술이므로 운영자가 케이스를 판단한다.
+- **항목**
+  1. `Class.capacity >= ZCARD enrolled:{classId}` — Lua 결정 게이트의 일관성.
+  2. `ZCARD enrolled:{classId} == COUNT(enrollment WHERE classId=? AND status IN ('PENDING','CONFIRMED'))` — ZSET ↔ DB 미러 정합성.
+  3. `ZCARD waitlist:{classId} == COUNT(enrollment WHERE classId=? AND status='WAITLISTED')` — 동일.
+  4. `(classId, classmateId)` 별 활성 신청 1건 이하.
+  5. `CONFIRMED` Enrollment 의 `paidAt` non-null.
+  6. (신규) `Class.status == OPEN` 이고 `period.endDate < today(KST)` 인 row 가 존재하지 않는다 — Quartz 자동 close 게이트의 일관성.
+- **주기** — application metric 으로 분 1회 샘플링. 발견 시 알림. 자동 수정은 reconcile endpoint 호출을 사람이 트리거.
+
+### 7.7 Redis ↔ DB Reconcile
+
+이중 SoT 의 정합성을 닫는 핵심 절차다.
+
+- **부팅 시** — `ReconcileRunner extends ApplicationRunner` 가 `OPEN` 상태인 모든 Class 에 대해 `DEL enrolled:{c}` + `DEL waitlist:{c}` 후 DB 활성 enrollment 를 ZSET 으로 재구성한다. 멱등.
+- **운영 중** — `POST /api/admin/reconcile/{classId}` 엔드포인트. mock 환경이므로 인증 없음. 호출자(`X-User-Id`) 와 시각을 로그로 남긴다.
+- **알림 기반 자동 트리거 X** — §7.6 의 검증이 위반을 발견하면 알림만 발송하고 자동 reconcile 하지 않는다.
+
+---
+
+## 8. Scheduled Jobs (Quartz)
+
+본 시스템은 시간 기반 자동 전이가 한 가지 있다 — **`Class.period.endDate` 도래 시 `OPEN → CLOSED` 자동 전이**. Quartz Scheduler 가 담당한다.
+
+### 8.1 채택 모델
+
+- **JobStore**: in-memory (`RAMJobStore`). 단일 EC2 가정. 멀티 인스턴스로 확장 시 `JobStoreTX` (JDBC JobStore) 로 전환 — 본 갱신 범위 밖.
+- **Timezone**: `Asia/Seoul` 고정. KST 자정 기준 endDate 판정.
+- **Job**: `ClassAutoCloseJob extends QuartzJobBean`. Singleton.
+- **Trigger**: `CronTrigger`, 표현식 `0 5 0 * * ?` (매일 00:05 KST). 자정 직후 5분 버퍼는 다른 자정 처리(예: DB 통계, 백업)와 시간대 충돌을 피하기 위한 안전 마진.
+- **Misfire**: `MISFIRE_INSTRUCTION_FIRE_AND_PROCEED`. EC2 가 00:05 시점에 다운된 경우 다음 부팅에서 한 번 실행. 멱등.
+
+### 8.2 작업 흐름
+
+```
+ClassAutoCloseJob.execute()
+  → classRepository.findByStatusAndPeriodEndDateBefore(OPEN, LocalDate.now(ZoneId.of("Asia/Seoul")))
+  → for each c in result:
+      try {
+        classApplicationService.close(c.id, SYSTEM_USER_ID, Instant.now())
+      } catch (IllegalStateTransitionException e) {
+        // Creator 가 1분 사이에 수동 close 한 경우 — 정상. INFO 로깅 후 continue.
+      }
+```
+
+- `classApplicationService.close(...)` 는 Creator 수동 호출과 동일 경로. `@Version` optimistic lock 으로 race 한 건만 성공.
+- 시스템 호출용 가상 사용자 ID(`SYSTEM_USER_ID`) 는 application config 에 상수로 정의 — Creator ID 일치 검증을 우회하기 위해 `Class.close()` 메서드 자체가 시스템 호출 케이스를 인지해야 한다. 또는 별도 `Class.autoClose(now)` 메서드를 추가해 Creator 검증을 생략하는 게 더 깔끔하다(구현 선택은 task 16 work-order 에서 확정).
+
+### 8.3 실패 모드
+
+- **Job 실행 중 일부 Class close 실패** — 한 Class 의 close 가 예외를 던져도 try-catch 로 격리, 다음 Class 로 진행. 실패 카운터를 Micrometer 메트릭으로 노출.
+- **Scheduler 자체 실패** — Spring Quartz Auto-configuration 이 부팅 시 healthcheck. 실패 시 actuator `/health` 가 DOWN.
+- **Clock drift** — EC2 의 시스템 시계가 KST 와 어긋난 경우 자동 close 시점이 어긋난다. 운영 시 NTP 동기화 필수.
+
+### 8.4 향후 확장 (out-of-scope)
+
+- `PENDING auto-cancellation timeout` (대기열 승격 후 N시간 결제 deadline) — README §10 에 한계로 명시.
+- `DRAFT → OPEN auto-trigger by startDate` — 본 도메인 채택 안 함 (`period` 는 강의 진행 기간이지 모집 기간이 아님).
 
 ---
 

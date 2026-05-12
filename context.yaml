@@ -33,7 +33,8 @@ business_context:
       invariants:
         - "OPEN 상태에서만 수강 신청을 수용한다"
         - "상태 전이는 일방향이다 (역방향 금지)"
-        - "Creator만 상태 전이를 수행할 수 있다"
+        - "Creator만 상태 전이를 수행할 수 있다 (단 Quartz autoClose는 시스템 호출로 우회)"
+        - "period.endDate 경과 시 Quartz ClassAutoCloseJob이 자동 close (매일 00:05 KST, Asia/Seoul). Creator 수동 close와 @Version optimistic lock으로 충돌 해소"
     - name: "Enrollment"
       description: "수강 신청·결제·취소·대기열"
       core_entities: ["Enrollment", "EnrollmentStatus"]
@@ -67,6 +68,14 @@ business_context:
       definition: "결제 완료(CONFIRMED) 시점부터 7일 이내의 취소 가능 기간"
     - term: "Waitlist promotion"
       definition: "CONFIRMED 취소로 자리가 비면 WAITLISTED 중 가장 오래된 한 건이 PENDING으로 자동 승격되는 절차"
+    - term: "ZSET mirror"
+      definition: "Redis Sorted Set 두 개(enrolled:{classId}, waitlist:{classId})로 활성 Enrollment 집합을 미러링. score=appliedAtNanos. Enrollment Aggregate의 index 역할이며 race-critical 결정의 1차 게이트"
+    - term: "Lua atomic script"
+      definition: "Redis 서버 단일 스레드 안에서 read-modify-write를 원자 실행하는 스크립트. enrollment_apply / enrollment_cancel_promote / enrollment_compensate 세 가지를 사용. 분산 락 불필요"
+    - term: "Reconcile"
+      definition: "Redis ZSET이 DB와 어긋날 가능성을 가정하고 부팅 시 DB → Redis로 ZSET을 재구성하는 절차. 운영 중에는 POST /api/admin/reconcile/{classId}로 강제 트리거"
+    - term: "Auto-close"
+      definition: "Quartz ClassAutoCloseJob이 매일 00:05 KST에 endDate 경과한 OPEN Class를 CLOSED로 자동 전이시키는 동작"
 
 engineering_principles:
   coding_standards:
@@ -79,7 +88,7 @@ engineering_principles:
   error_handling:
     - pattern: "GlobalExceptionHandler를 통한 공통 응답 처리"
     - domain_exception_base: "도메인 예외는 RuntimeException 상속, ProblemDetail로 매핑"
-    - retry_policy: "외부 호출 없음 (mock payment). Redisson lock acquire 시 wait 500ms, lease 3s."
+    - retry_policy: "외부 호출 없음 (mock payment). Lua 스크립트 EVALSHA 캐시 미스 시 EVAL fallback (Lettuce 자동). Redis 호출 실패 시 즉시 503 fail-closed (정합성 우선)."
   testing:
     - "단위 테스트는 도메인 엔티티의 상태 전이를 순수 JUnit으로 검증한다."
     - "통합 테스트는 @SpringBootTest + Testcontainers (PostgreSQL + Redis)."
@@ -112,11 +121,13 @@ context_map:
 
   request_flow:
     - "POST /api/classes (Creator) → Class DRAFT 생성"
-    - "PATCH /api/classes/{id}/status OPEN (Creator) → 신청 수용 시작"
-    - "POST /api/enrollments (Classmate) → Redisson RLock 획득 → capacity 재확인 → PENDING 또는 WAITLISTED → lock 해제"
-    - "POST /api/enrollments/{id}/confirm-payment (mock) → CONFIRMED, paidAt 기록"
-    - "DELETE /api/enrollments/{id} (Classmate) → 7일 창 검증 → CANCELLED → Redisson lock 안에서 WAITLISTED FIFO 승격"
+    - "PATCH /api/classes/{id}/status OPEN (Creator) → 신청 수용 시작. Redis class:status:{id} mirror 갱신"
+    - "POST /api/enrollments (Classmate) → enrollment_apply.lua 호출 (ZCARD enrolled vs capacity 원자 분기) → 결과(PENDING/WAITLISTED)에 따라 DB INSERT. DB 실패 시 enrollment_compensate.lua로 ZSET 되돌림"
+    - "POST /api/enrollments/{id}/confirm-payment (mock) → @Version optimistic lock으로 PENDING → CONFIRMED. ZSET 갱신 없음 (enrolled에 PENDING과 CONFIRMED 둘 다 포함)"
+    - "DELETE /api/enrollments/{id} (Classmate) → 7일 창 검증 → DB UPDATE CANCELLED → enrollment_cancel_promote.lua가 ZREM enrolled + ZPOPMIN waitlist + ZADD enrolled 원자 swap → promoted Enrollment DB UPDATE PENDING"
     - "GET /api/classes/{id}/students (Creator-only) → CONFIRMED Enrollment paginated 목록"
+    - "POST /api/admin/reconcile/{classId} (운영용) → DEL ZSET 후 DB에서 enrolled/waitlist 재구성"
+    - "[Scheduled] ClassAutoCloseJob 매일 00:05 KST → endDate 경과한 OPEN Class에 autoClose() 호출"
 
   external_dependencies:
     - service: "Docker Hub"
@@ -125,6 +136,8 @@ context_map:
       purpose: "런타임 호스트 (Ubuntu 22.04 + docker compose)"
     - service: "Google AI Studio (Gemini API)"
       purpose: "PR 자동 코드 리뷰 (gemini-2.5-flash, 참고용)"
+    - service: "Quartz Scheduler (in-memory JobStore, Asia/Seoul timezone)"
+      purpose: "Class auto-close — endDate 경과 시 OPEN → CLOSED 자동 전이. 단일 EC2 가정. 멀티 인스턴스 확장 시 JDBC JobStore 전환."
 
 constraints_and_rules:
   strictly_prohibited:
@@ -135,16 +148,18 @@ constraints_and_rules:
     - "git push --force, git reset --hard 금지 (pre-bash hook이 차단)"
     - "Spring Security 도입 금지 (mock 인증으로 충분, 범위 외)"
     - "Real PG/카드 결제 연동 금지 (mock 단순 상태 변경)"
+    - "Redis ZSET 갱신과 DB INSERT/UPDATE 사이에 외부 호출 금지 (보상 윈도우 최소화)"
+    - "race-critical path에서 PG SELECT FOR UPDATE 사용 금지 (Lua atomic script로 일원화). @Version optimistic lock은 7일 창과 상태 전이에 한정"
   performance_requirements:
     - "API 응답 p95 200ms 이내 (로컬 기준)"
     - "마지막 자리 race 테스트에서 100% 결정론적 결과 (10회 연속 통과)"
-    - "Redisson lock wait 시간 500ms 초과 시 신청 거부"
+    - "Lua 호출 p99 < 5ms (단일 Redis 라운드트립, EVALSHA 캐시 히트 기준)"
   language_policy:
     - "사용자 응답은 한국어. 기술 산출물(커밋 메시지, 설계 문서, 코드 주석)은 영어."
     - "단, 한국어 산출물(DOCS.md, ARCHITECTURE.md, README.md 등)은 한국어 본문 유지."
 
 metadata:
-  last_indexed: "2026-05-11"
+  last_indexed: "2026-05-12"
   index_author: "corinB <gkdisrha2020@gmail.com>"
   primary_branch: "main"
   related_docs:
