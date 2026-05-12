@@ -4,7 +4,7 @@ status: done
 owner: blueprint-executor-worker
 created: 2026-05-12
 updated: 2026-05-12
-pr: (filled after gh pr create)
+pr: https://github.com/corinB/live-class/pull/14
 ---
 
 # Report: Task 05 — Class Repository + ApplicationService + Controller + Status Mirror Listener
