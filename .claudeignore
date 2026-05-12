@@ -19,6 +19,9 @@ node_modules/
 *.jar
 *.war
 
+# Docker bind-mount data dirs (postgres, redis)
+data/
+
 # Lock files (high-volume, low-signal)
 *.lock
 package-lock.json
