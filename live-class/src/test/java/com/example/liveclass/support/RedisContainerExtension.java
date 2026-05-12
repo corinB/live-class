@@ -5,13 +5,16 @@ import com.redis.testcontainers.RedisContainer;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.utility.DockerImageName;
 
 public class RedisContainerExtension implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
 
     private static final RedisContainer REDIS_CONTAINER =
             new RedisContainer(DockerImageName.parse("redis:7"));
+
+    static {
+        REDIS_CONTAINER.start();
+    }
 
     @Override
     public void beforeAll(ExtensionContext context) {
@@ -22,9 +25,7 @@ public class RedisContainerExtension implements BeforeAllCallback, ExtensionCont
 
     @Override
     public void close() {
-        if (REDIS_CONTAINER.isRunning()) {
-            REDIS_CONTAINER.stop();
-        }
+        // Container is kept alive for reuse across test classes; JVM shutdown will stop it.
     }
 
     public static String getHost() {
@@ -33,5 +34,11 @@ public class RedisContainerExtension implements BeforeAllCallback, ExtensionCont
 
     public static int getPort() {
         return REDIS_CONTAINER.getFirstMappedPort();
+    }
+
+    public static void applyProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", REDIS_CONTAINER::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS_CONTAINER.getFirstMappedPort().toString());
+        registry.add("spring.data.redis.password", () -> "");
     }
 }
