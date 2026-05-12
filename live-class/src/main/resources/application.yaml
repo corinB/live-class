@@ -14,17 +14,12 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
     show-sql: ${JPA_SHOW_SQL:false}
-  cache:
-    type: redis
-    cache-names:
-      - "class:detail"
-      - "class:enrolledCount"
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      timeout: 2000ms
+      timeout: 200ms   # Lettuce commandTimeout — ARCHITECTURE §4.4 fail-closed 정책에 맞춰 짧게
 
 springdoc:
   api-docs:

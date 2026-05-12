@@ -4,9 +4,9 @@ package com.example.liveclass.config;
 import com.example.liveclass.support.RedisContainerExtension;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -37,9 +37,6 @@ class RedisConfigTest {
     private RedisTemplate<String, String> stringRedisTemplate;
 
     @Autowired
-    private CacheManager cacheManager;
-
-    @Autowired
     private DefaultRedisScript<String> enrollmentApplyScript;
 
     @Autowired
@@ -52,16 +49,9 @@ class RedisConfigTest {
     @Test
     void allBeansArePresent() {
         assertThat(stringRedisTemplate).isNotNull();
-        assertThat(cacheManager).isNotNull();
         assertThat(enrollmentApplyScript).isNotNull();
         assertThat(enrollmentCancelPromoteScript).isNotNull();
         assertThat(enrollmentCompensateScript).isNotNull();
-    }
-
-    @Test
-    void cacheManagerHasBothCacheNames() {
-        assertThat(cacheManager.getCache("class:detail")).isNotNull();
-        assertThat(cacheManager.getCache("class:enrolledCount")).isNotNull();
     }
 
     @Test
@@ -75,5 +65,13 @@ class RedisConfigTest {
     void noRedissonBeanPresent() {
         assertThat(ctx.getBeansOfType(Object.class).keySet())
                 .noneMatch(name -> name.toLowerCase().contains("redisson"));
+    }
+
+    @Test
+    void noCustomCacheManagerBean() {
+        // Pre-flight 5 결정: Spring Cache 추상화는 사용하지 않는다. RedisCacheManager 빈을 정의하지 않으며,
+        // Spring Boot 의 auto-config 도 `spring.cache.type` 미설정으로 활성화되지 않는다.
+        assertThatThrownBy(() -> ctx.getBean("liveClassCacheManager"))
+                .isInstanceOf(NoSuchBeanDefinitionException.class);
     }
 }
