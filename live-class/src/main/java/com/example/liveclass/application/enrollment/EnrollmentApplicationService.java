@@ -13,6 +13,7 @@ import com.example.liveclass.domain.enrollment.event.EnrollmentCreatedEvent;
 import com.example.liveclass.domain.user.UserId;
 import com.example.liveclass.web.enrollment.dto.EnrollmentResponse;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -73,7 +74,11 @@ public class EnrollmentApplicationService {
 
         try {
             enrollmentRepository.save(enrollment);
-        } catch (DataIntegrityViolationException | RuntimeException ex) {
+        } catch (DataAccessException ex) {
+            // Narrowed to Spring's DataAccessException hierarchy: covers
+            // DataIntegrityViolationException, OptimisticLockingFailureException,
+            // JpaSystemException etc. Crucially does NOT catch MirrorUnavailableException
+            // (a plain RuntimeException), so compensation Lua failure won't recurse.
             mirrorService.compensateApply(classId, classmateId);
             throw mapDbException(ex);
         }

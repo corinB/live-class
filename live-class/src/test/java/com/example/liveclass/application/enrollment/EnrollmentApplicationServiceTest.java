@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.SpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -69,7 +69,7 @@ class EnrollmentApplicationServiceTest {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
-    @SpyBean
+    @MockitoSpyBean
     private EnrollmentMirrorService mirrorServiceSpy;
 
     private UUID creatorId;
