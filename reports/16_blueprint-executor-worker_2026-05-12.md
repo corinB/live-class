@@ -1,6 +1,6 @@
 # Task 16 — Class Auto-Close Quartz Job
 
-**PR URL:** (to be filled after push)
+**PR URL:** https://github.com/corinB/live-class/pull/16
 **Date:** 2026-05-12
 **Agent:** blueprint-executor-worker
 
