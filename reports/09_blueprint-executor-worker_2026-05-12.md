@@ -52,4 +52,4 @@
 
 ## PR URL
 
-(to be filled after `gh pr create`)
+https://github.com/corinB/live-class/pull/18
