@@ -1,7 +1,6 @@
 // MockUserFilter 의 401/400/200 경로를 검증하는 슬라이스 테스트
 package com.example.liveclass.web.auth;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -17,7 +16,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MockUserFilterTest {
 
     private MockMvc mockMvc;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @RestController
     @RequestMapping("/api/test")
@@ -32,7 +30,7 @@ class MockUserFilterTest {
     void setUp() {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new DummyController())
-                .addFilters(new MockUserFilter(objectMapper))
+                .addFilters(new MockUserFilter())
                 .build();
     }
 

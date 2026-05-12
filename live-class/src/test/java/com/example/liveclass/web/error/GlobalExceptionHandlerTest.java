@@ -49,6 +49,6 @@ class GlobalExceptionHandlerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.detail").value("Sample domain error occurred"))
-                .andExpect(jsonPath("$.properties.errorCode").value("SAMPLE_ERROR"));
+                .andExpect(jsonPath("$.errorCode").value("SAMPLE_ERROR"));
     }
 }

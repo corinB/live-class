@@ -27,12 +27,8 @@ public class MockUserFilter extends OncePerRequestFilter {
             "/actuator/**"
     );
 
-    private final ObjectMapper objectMapper;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final AntPathMatcher pathMatcher = new AntPathMatcher();
-
-    public MockUserFilter(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -73,6 +69,6 @@ public class MockUserFilter extends OncePerRequestFilter {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(status, detail);
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.getWriter().write(objectMapper.writeValueAsString(problemDetail));
+        response.getWriter().write(OBJECT_MAPPER.writeValueAsString(problemDetail));
     }
 }

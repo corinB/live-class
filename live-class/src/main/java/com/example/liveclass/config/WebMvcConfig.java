@@ -3,7 +3,6 @@ package com.example.liveclass.config;
 
 import com.example.liveclass.web.auth.CurrentUserArgumentResolver;
 import com.example.liveclass.web.auth.MockUserFilter;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,16 +15,10 @@ import java.util.List;
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
-    private final ObjectMapper objectMapper;
-
-    public WebMvcConfig(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
-
     @Bean
     public FilterRegistrationBean<MockUserFilter> mockUserFilterRegistration() {
         FilterRegistrationBean<MockUserFilter> registration = new FilterRegistrationBean<>();
-        registration.setFilter(new MockUserFilter(objectMapper));
+        registration.setFilter(new MockUserFilter());
         registration.addUrlPatterns("/api/*");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         return registration;
