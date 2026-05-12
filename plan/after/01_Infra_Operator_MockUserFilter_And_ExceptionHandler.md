@@ -10,14 +10,14 @@
 
 ## Action Items (Checklist)
 
-- [ ] `live-class/src/main/java/com/example/liveclass/web/auth/CurrentUser.java` 작성 (record `CurrentUser(UUID userId)`).
-- [ ] `live-class/src/main/java/com/example/liveclass/web/auth/MockUserFilter.java`를 `OncePerRequestFilter` 상속으로 구현해 `X-User-Id` 헤더를 파싱하고 `request.setAttribute("currentUserId", uuid)`로 주입.
-- [ ] `MockUserFilter`에서 헤더 누락 시 401, UUID 파싱 실패 시 400 `ProblemDetail` JSON으로 직접 응답.
-- [ ] Swagger 경로(`/v3/api-docs/**`, `/swagger-ui/**`)와 헬스체크(`/actuator/**`)는 필터 화이트리스트로 통과시킴.
-- [ ] `live-class/src/main/java/com/example/liveclass/config/WebMvcConfig.java`에 `FilterRegistrationBean<MockUserFilter>` 등록 (`urlPatterns = "/api/*"`, order = `Ordered.HIGHEST_PRECEDENCE + 10`).
-- [ ] `live-class/src/main/java/com/example/liveclass/web/auth/CurrentUserArgumentResolver.java` 작성 — `@AuthenticationPrincipal` 대신 커스텀 `@CurrentUserId` 어노테이션으로 컨트롤러 메서드 파라미터에 `UUID` 주입.
-- [ ] `WebMvcConfig`에서 `addArgumentResolvers`로 `CurrentUserArgumentResolver` 등록.
-- [ ] `live-class/src/main/java/com/example/liveclass/domain/shared/DomainException.java` 추상 클래스 (`RuntimeException` 상속, `errorCode: String`, `status: HttpStatus`) 정의.
-- [ ] `live-class/src/main/java/com/example/liveclass/web/error/GlobalExceptionHandler.java`에 `@ExceptionHandler(DomainException.class)`, `@ExceptionHandler(MethodArgumentNotValidException.class)`, `@ExceptionHandler(OptimisticLockingFailureException.class)`, `@ExceptionHandler(Exception.class)` 4개 핸들러 작성하여 `ProblemDetail`로 매핑.
-- [ ] (Verify) `live-class/src/test/java/com/example/liveclass/web/auth/MockUserFilterTest.java`에 `@WebMvcTest` 슬라이스 테스트 작성 — 헤더 없음 401, 잘못된 UUID 400, 정상 UUID 200을 한 줄짜리 더미 컨트롤러로 검증.
-- [ ] (Verify) `GlobalExceptionHandlerTest`로 `DomainException` 던지는 더미 컨트롤러가 ProblemDetail 형식(`type`, `title`, `status`, `detail`)으로 응답하는지 검증.
+- [x] `live-class/src/main/java/com/example/liveclass/web/auth/CurrentUser.java` 작성 (record `CurrentUser(UUID userId)`).
+- [x] `live-class/src/main/java/com/example/liveclass/web/auth/MockUserFilter.java`를 `OncePerRequestFilter` 상속으로 구현해 `X-User-Id` 헤더를 파싱하고 `request.setAttribute("currentUserId", uuid)`로 주입.
+- [x] `MockUserFilter`에서 헤더 누락 시 401, UUID 파싱 실패 시 400 `ProblemDetail` JSON으로 직접 응답.
+- [x] Swagger 경로(`/v3/api-docs/**`, `/swagger-ui/**`)와 헬스체크(`/actuator/**`)는 필터 화이트리스트로 통과시킴.
+- [x] `live-class/src/main/java/com/example/liveclass/config/WebMvcConfig.java`에 `FilterRegistrationBean<MockUserFilter>` 등록 (`urlPatterns = "/api/*"`, order = `Ordered.HIGHEST_PRECEDENCE + 10`).
+- [x] `live-class/src/main/java/com/example/liveclass/web/auth/CurrentUserArgumentResolver.java` 작성 — `@AuthenticationPrincipal` 대신 커스텀 `@CurrentUserId` 어노테이션으로 컨트롤러 메서드 파라미터에 `UUID` 주입.
+- [x] `WebMvcConfig`에서 `addArgumentResolvers`로 `CurrentUserArgumentResolver` 등록.
+- [x] `live-class/src/main/java/com/example/liveclass/domain/shared/DomainException.java` 추상 클래스 (`RuntimeException` 상속, `errorCode: String`, `status: HttpStatus`) 정의.
+- [x] `live-class/src/main/java/com/example/liveclass/web/error/GlobalExceptionHandler.java`에 `@ExceptionHandler(DomainException.class)`, `@ExceptionHandler(MethodArgumentNotValidException.class)`, `@ExceptionHandler(OptimisticLockingFailureException.class)`, `@ExceptionHandler(Exception.class)` 4개 핸들러 작성하여 `ProblemDetail`로 매핑.
+- [x] (Verify) `live-class/src/test/java/com/example/liveclass/web/auth/MockUserFilterTest.java`에 `@WebMvcTest` 슬라이스 테스트 작성 — 헤더 없음 401, 잘못된 UUID 400, 정상 UUID 200을 한 줄짜리 더미 컨트롤러로 검증.
+- [x] (Verify) `GlobalExceptionHandlerTest`로 `DomainException` 던지는 더미 컨트롤러가 ProblemDetail 형식(`type`, `title`, `status`, `detail`)으로 응답하는지 검증.
