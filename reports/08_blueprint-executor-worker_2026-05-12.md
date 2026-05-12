@@ -53,6 +53,6 @@ Test execution fails with `ClassNotFoundException` due to the known Korean path 
 
 ## 4. PR
 
-PR number is filled after push — see commit message.
+**PR #13:** https://github.com/corinB/live-class/pull/13
 
 **Parallel work note:** Task 05 (Class Repository + Service + Controller) was developed concurrently. This task does not touch any files in `domain/clazz/**`, `application/clazz/**`, `web/clazz/**`, `build.gradle`, `application.yaml`, or `LiveClassApplication.java` — no conflict expected.
