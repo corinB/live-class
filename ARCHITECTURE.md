@@ -114,7 +114,7 @@ DOCS.md 가 정의한 도메인 규칙에 비춰 본 시스템이 반드시 정�
 
 ### 4.1 결론
 
-**기본 전략은 Redis ZSET + Lua Atomic Script (C) 이다.** PostgreSQL 은 영속화와 마지막 정합성 방어선(partial unique index, `@Version`) 으로 사용한다. Redisson `RLock` (B) 은 cache stampede 방어용 single-flight 등 race-non-critical 보조 용도로만 사용한다. DB Pessimistic Lock (A) 은 본 시스템의 critical path 에서 채택하지 않는다.
+**기본 전략은 Redis ZSET + Lua Atomic Script (C) 이다.** PostgreSQL 은 영속화와 마지막 정합성 방어선(partial unique index, `@Version`) 으로 사용한다. DB Pessimistic Lock (A) 은 본 시스템의 critical path 에서 채택하지 않는다. **Redisson `RLock` (B) 은 본 시스템에서 사용하지 않는다 — Pre-flight 4 결정으로 의존성 자체를 제거** (이전 §5.5 의 cache stampede single-flight 용도가 단일 EC2 환경에서 ROI 낮음). cache stampede 방어는 §5.5 에서 JVM-내 single-flight 로 다룬다.
 
 ### 4.2 채택 근거
 
@@ -149,7 +149,7 @@ DOCS.md 가 정의한 도메인 규칙에 비춰 본 시스템이 반드시 정�
   - `class:status:{classId}` — String. value=`DRAFT|OPEN|CLOSED`, TTL=300s. Lua 가 status 검사용으로 GET.
   - `class:detail:{classId}` — String (JSON). Spring `@Cacheable` 로 관리되는 cache-aside 데이터.
   - `class:enrolledCount:{classId}` — String (int). 표시용 카운터. TTL 60s. 결정에 사용하지 않는다.
-  - `lock:cache:class:{classId}:detail` — Redisson RLock. cache stampede single-flight 보조용 (유일한 Redisson 사용처).
+  - (out-of-scope) `lock:cache:class:{classId}:detail` — 본 시스템에서는 사용 안 함. 다중 인스턴스 확장 시 Redis SETNX 기반 분산 single-flight 도입 검토 — Pre-flight 4 에서 Redisson 의존성 제거 결정 (§5.5 참조).
 - **EVALSHA 캐시** — Redis 재시작 시 스크립트 캐시가 사라지므로 부팅 직후 첫 호출에서 한 번 `EVAL` 이 발생할 수 있다. Lettuce 가 투명 처리.
 - **Lua 보유 시간** — Lua 는 락 매니저가 아니며 락 보유 개념이 없다. 한 호출의 wall-clock 은 sub-ms (대부분 100µs 미만). 한 스크립트의 명령 수는 10 이하로 유지한다.
 - **DB 트랜잭션 상한** — Lua 결정 직후 application 트랜잭션은 100ms 이내에 종료. 외부 호출(mock 결제, 알림) 은 트랜잭션 밖에서 처리.
@@ -187,7 +187,7 @@ Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
 | `class:status:{classId}` | String | 300s | Cache (Lua 입력) | Class 상태 전이 application service (수동 + Quartz 자동) |
 | `class:detail:{classId}` | String (JSON) | 300s | Cache | `@Cacheable` 인터셉터 |
 | `class:enrolledCount:{classId}` | String (int) | 60s | Cache | 표시용 |
-| `lock:cache:class:{classId}:detail` | Redisson RLock | leaseTime 1s | Cache stampede single-flight 보조 | Cache miss 시 |
+| ~~`lock:cache:class:{classId}:detail`~~ | (사용 안 함) | — | — | Pre-flight 4 결정으로 Redisson 의존성 제거. 다중 인스턴스 확장 시 분산 single-flight 재도입 검토 (§5.5). |
 
 키는 모두 소문자, `:` 구분자, `{변수}` 는 UUID 문자열 형태로 통일한다.
 
@@ -215,7 +215,8 @@ Redis 는 본 시스템에서 두 가지 분리된 역할을 갖는다.
 ### 5.5 Cache Stampede 방어
 
 - 인기 강의 캐시가 동시에 만료되면 같은 키에 대해 다수 요청이 DB 로 몰린다.
-- 방어책 — 캐시 미스 시 Redisson `RLock` 으로 재계산 단일화(`lock:cache:class:{classId}:detail`, leaseTime 1s). 락 미획득 시 짧은 backoff 후 재조회.
+- **본 시스템은 단일 JVM 가정**이므로 캐시 미스 시 `synchronized` 블록 또는 `ConcurrentHashMap.computeIfAbsent` 같은 JVM-내 락으로 single-flight 처리. 락 비용이 mutex 수준이라 cache miss 가 동시에 들어와도 DB 호출은 1회로 직렬화된다.
+- 다중 인스턴스 / cluster 확장 시점에는 Redis SETNX (`SET key NX EX 1s`) 기반 분산 single-flight 또는 Redisson `RLock` 도입 검토 — **본 채용 과제 범위 외 (Pre-flight 4 결정)**. Day 1 초안의 Redisson 의존성은 의도적으로 제거.
 
 ---
 

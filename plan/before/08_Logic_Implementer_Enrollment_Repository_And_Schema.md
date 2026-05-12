@@ -1,4 +1,4 @@
-# Enrollment Repository, partial unique index, Lua RedisScript 빈
+# Enrollment Repository + partial unique index + EnrollmentMirrorService
 
 - **Assignee:** The Logic Implementer
 - **Dependencies:** 07_Logic_Implementer_Enrollment_Domain_Entity.md, 02_Infra_Operator_Redis_And_Cache_Config.md
@@ -12,7 +12,7 @@
   - DOCS Invariant Enrollment §3 부분 유니크 인덱스가 PostgreSQL에 적용된다 (`UNIQUE (class_id, classmate_id) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED')`). ZSET mirror 가 1차 게이트지만 DB partial unique index 가 **마지막 정합성 방어선** (ARCHITECTURE §4.2 (4-c)).
   - `ddl-auto: update`는 partial index를 생성하지 못하므로 `ApplicationRunner`로 부팅 시 `CREATE UNIQUE INDEX IF NOT EXISTS ... WHERE ...` 실행.
   - `appliedAt`에 인덱스가 부여되어 FIFO 정렬 / reconcile 쿼리가 O(log n)로 동작한다.
-  - **Lua RedisScript 빈 3개가 등록된다** — `enrollmentApplyScript`, `enrollmentCancelPromoteScript`, `enrollmentCompensateScript`. 본 task 에서는 빈 정의 + 빈 .lua 파일을 placeholder 로 만들어두고 실제 스크립트 본문은 task 09/10 worker 가 채운다.
+  - **`EnrollmentMirrorService` 가 정의되어** task 02 에서 등록된 `RedisScript` 빈 3개를 주입받아 `RedisTemplate.execute(...)` 로 호출하는 thin wrapper 역할을 한다. **Lua RedisScript 빈 자체와 .lua 파일은 Pre-flight 4 결정으로 task 02 에서 이관 완료** — 본 task 는 그 빈들을 사용만 한다.
 
 ## Action Items (Checklist)
 
@@ -27,13 +27,11 @@
 - [ ] `domain/enrollment/Enrollment.java`에 인덱스 어노테이션 추가: `@Table(name="enrollments", indexes = {@Index(name="idx_enroll_classid_appliedat", columnList="class_id, applied_at"), @Index(name="idx_enroll_classmate", columnList="classmate_id"), @Index(name="idx_enroll_classid_status", columnList="class_id, status")})`.
 - [ ] `infrastructure/PartialIndexInitializer.java` — `@Component` + `ApplicationRunner`. JDBC로 다음 SQL 실행 (멱등).
   - `CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_enrollment ON enrollments (class_id, classmate_id) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED');`
-- [ ] `config/LuaScriptConfig.java` — `@Configuration`. 3 개의 `@Bean DefaultRedisScript<...>` 정의.
-  - `enrollmentApplyScript()` — `RedisScript<String>` (returns "PENDING"/"WAITLISTED"/"DUPLICATE_ACTIVE"/"CLASS_NOT_FOUND"/"CLASS_NOT_OPEN"). `setLocation(new ClassPathResource("lua/enrollment_apply.lua"))`.
-  - `enrollmentCancelPromoteScript()` — `RedisScript<List>` (returns null or `[promotedClassmateId, promotedScore]`).
-  - `enrollmentCompensateScript()` — `RedisScript<Long>` (returns count of ZREM operations).
-- [ ] `src/main/resources/lua/enrollment_apply.lua` — placeholder. 첫 줄에 한국어 주석 `-- enrollment_apply.lua — 정원 검사 + 중복 검사 + ZSET 결정 (task 09에서 본문 작성)`. 빈 함수만 두고 `return 'PENDING'` placeholder.
-- [ ] `src/main/resources/lua/enrollment_cancel_promote.lua` — 동일 placeholder. `return nil`.
-- [ ] `src/main/resources/lua/enrollment_compensate.lua` — 동일 placeholder. `return 0`.
+- [ ] `application/enrollment/EnrollmentMirrorService.java` 작성 (skeleton).
+  - 첫 줄 한국어 주석 `// task 02 에서 등록된 RedisScript 3개를 호출하는 thin wrapper. apply / cancelAndMaybePromote / compensateApply / primeClassStatusMirror 메서드 제공.`
+  - `@Service`. 의존: `StringRedisTemplate redisTemplate`, `RedisScript<String> enrollmentApplyScript`, `RedisScript<List> enrollmentCancelPromoteScript`, `RedisScript<Long> enrollmentCompensateScript`.
+  - 메서드 시그니처만 정의 (실제 호출 본문은 task 09/10 에서 구현). 본 task 에서는 빈 메서드 body 또는 `throw new UnsupportedOperationException("implemented in task 09/10")` placeholder.
+  - 단 `primeClassStatusMirror(UUID classId, ClassStatus status)` 는 task 02 의 RedisTemplate 만으로 동작 가능하므로 본 task 에서 실제 구현 — `redisTemplate.opsForValue().set("class:status:" + classId, status.name(), Duration.ofMinutes(5))`.
 - [ ] (Verify) `domain/enrollment/EnrollmentRepositoryIntegrationTest.java` — Testcontainers + `@DataJpaTest`.
   - 동일 (classId, classmateId)로 active 두 건 insert 시도 → `DataIntegrityViolationException` (partial unique index 동작).
   - CANCELLED 상태로 한 건 + 새 PENDING 한 건은 같은 (classId, classmateId)여도 성공.
