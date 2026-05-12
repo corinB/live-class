@@ -14,6 +14,11 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
     show-sql: ${JPA_SHOW_SQL:false}
+  cache:
+    type: redis
+    cache-names:
+      - "class:detail"
+      - "class:enrolledCount"
   data:
     redis:
       host: ${REDIS_HOST:localhost}

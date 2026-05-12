@@ -12,33 +12,33 @@
 
 ## Action Items (Checklist)
 
-- [ ] `build.gradle` 에 Testcontainers 의존성 추가.
+- [x] `build.gradle` 에 Testcontainers 의존성 추가.
   - `testImplementation 'org.testcontainers:postgresql'`
   - `testImplementation 'org.testcontainers:junit-jupiter'`
   - `testImplementation 'com.redis:testcontainers-redis:2.2.2'`
   - **Redisson starter 는 추가하지 않는다.**
-- [ ] `live-class/src/main/java/com/example/liveclass/config/RedisConfig.java` 작성.
+- [x] `live-class/src/main/java/com/example/liveclass/config/RedisConfig.java` 작성.
   - 첫 줄 한국어 주석 `// Lettuce ConnectionFactory + StringRedisTemplate + RedisCacheManager 를 등록하는 Redis 인프라 설정`.
   - `@Bean LettuceConnectionFactory redisConnectionFactory()` — `commandTimeout = Duration.ofMillis(200)`, `spring.data.redis.host/port/password` 프로퍼티 바인딩 (`@Value` 또는 `RedisProperties` autowiring).
   - `@Bean RedisTemplate<String, String> stringRedisTemplate(RedisConnectionFactory cf)` — key/value 모두 `StringRedisSerializer` 사용.
   - `@Bean RedisCacheManager cacheManager(RedisConnectionFactory cf)` — `RedisCacheConfiguration` 두 개를 `Map<String, RedisCacheConfiguration>` 로 구성. `class:detail` TTL 300s, `class:enrolledCount` TTL 60s.
-- [ ] `live-class/src/main/java/com/example/liveclass/config/LuaScriptConfig.java` 작성.
+- [x] `live-class/src/main/java/com/example/liveclass/config/LuaScriptConfig.java` 작성.
   - 첫 줄 한국어 주석 `// Lua atomic script 3개를 classpath:lua/*.lua 에서 로드해 RedisScript 빈으로 등록`.
   - `@Bean DefaultRedisScript<String> enrollmentApplyScript()` — `setLocation(new ClassPathResource("lua/enrollment_apply.lua"))`, `setResultType(String.class)`.
   - `@Bean DefaultRedisScript<List> enrollmentCancelPromoteScript()` — `setLocation(new ClassPathResource("lua/enrollment_cancel_promote.lua"))`, `setResultType(List.class)`.
   - `@Bean DefaultRedisScript<Long> enrollmentCompensateScript()` — `setLocation(new ClassPathResource("lua/enrollment_compensate.lua"))`, `setResultType(Long.class)`.
-- [ ] `live-class/src/main/resources/lua/enrollment_apply.lua` 파일 생성 (placeholder).
+- [x] `live-class/src/main/resources/lua/enrollment_apply.lua` 파일 생성 (placeholder).
   - 첫 줄 한국어 주석 `-- enrollment_apply.lua — Lua 1차 게이트 (정원·중복 검사 + ZSET ADD). task 09 worker 가 본문 작성 예정.`
   - 본문은 단일 라인 `return 'PENDING'` placeholder.
-- [ ] `live-class/src/main/resources/lua/enrollment_cancel_promote.lua` 파일 생성 (placeholder).
+- [x] `live-class/src/main/resources/lua/enrollment_cancel_promote.lua` 파일 생성 (placeholder).
   - 첫 줄 한국어 주석 `-- enrollment_cancel_promote.lua — cancel + waitlist 승격 원자 ZSET swap. task 10 worker 가 본문 작성 예정.`
   - 본문 `return nil`.
-- [ ] `live-class/src/main/resources/lua/enrollment_compensate.lua` 파일 생성 (placeholder).
+- [x] `live-class/src/main/resources/lua/enrollment_compensate.lua` 파일 생성 (placeholder).
   - 첫 줄 한국어 주석 `-- enrollment_compensate.lua — Lua 성공 후 DB 실패 시 ZSET 갱신을 되돌리는 보상 스크립트. task 09 worker 가 본문 작성 예정.`
   - 본문 `return 0`.
-- [ ] `application.yaml` 에 `spring.cache.type: redis` 추가, `spring.cache.cache-names` 에 `class:detail`, `class:enrolledCount` 명시.
-- [ ] `LiveClassApplication.java` 에 `@EnableCaching` 추가.
-- [ ] `live-class/src/test/java/com/example/liveclass/support/RedisContainerExtension.java` 작성 — JUnit5 `@RegisterExtension` 으로 Testcontainers Redis 컨테이너 + `@DynamicPropertySource` 로 `spring.data.redis.host/port` 주입.
-- [ ] (Verify) `live-class/src/test/java/com/example/liveclass/config/RedisConfigTest.java` — `@SpringBootTest` 로 컨텍스트 로드 후 `RedisTemplate`, `CacheManager`, `enrollmentApplyScript`, `enrollmentCancelPromoteScript`, `enrollmentCompensateScript` 5 개 빈이 모두 주입되는지 검증. RedissonClient 빈은 존재하지 **않음** 을 확인 (`assertThatThrownBy(() -> context.getBean(...))`).
-- [ ] (Verify) `CacheManager` 가 `class:detail`, `class:enrolledCount` 두 캐시 이름을 반환하는지 검증.
-- [ ] (Verify) 각 RedisScript 빈의 `getScriptAsString()` 이 placeholder 본문을 반환하는지 검증 (스크립트 로딩 자체 확인).
+- [x] `application.yaml` 에 `spring.cache.type: redis` 추가, `spring.cache.cache-names` 에 `class:detail`, `class:enrolledCount` 명시.
+- [x] `LiveClassApplication.java` 에 `@EnableCaching` 추가.
+- [x] `live-class/src/test/java/com/example/liveclass/support/RedisContainerExtension.java` 작성 — JUnit5 `@RegisterExtension` 으로 Testcontainers Redis 컨테이너 + `@DynamicPropertySource` 로 `spring.data.redis.host/port` 주입.
+- [x] (Verify) `live-class/src/test/java/com/example/liveclass/config/RedisConfigTest.java` — `@SpringBootTest` 로 컨텍스트 로드 후 `RedisTemplate`, `CacheManager`, `enrollmentApplyScript`, `enrollmentCancelPromoteScript`, `enrollmentCompensateScript` 5 개 빈이 모두 주입되는지 검증. RedissonClient 빈은 존재하지 **않음** 을 확인 (`assertThatThrownBy(() -> context.getBean(...))`).
+- [x] (Verify) `CacheManager` 가 `class:detail`, `class:enrolledCount` 두 캐시 이름을 반환하는지 검증.
+- [x] (Verify) 각 RedisScript 빈의 `getScriptAsString()` 이 placeholder 본문을 반환하는지 검증 (스크립트 로딩 자체 확인).
