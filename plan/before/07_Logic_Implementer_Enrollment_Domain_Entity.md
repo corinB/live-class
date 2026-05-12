@@ -11,10 +11,10 @@
 
 ## Action Items (Checklist)
 
-- [ ] `domain/enrollment/EnrollmentId.java` — `record EnrollmentId(UUID value)`.
-- [ ] `domain/enrollment/EnrollmentStatus.java` — `enum { PENDING, CONFIRMED, CANCELLED, WAITLISTED }`.
-- [ ] `domain/enrollment/CancellationWindow.java` — `record CancellationWindow(Duration window)` + `boolean isWithin(Instant paidAt, Instant now) { return !now.isAfter(paidAt.plus(window)); }`. 정적 상수 `CancellationWindow.SEVEN_DAYS = new CancellationWindow(Duration.ofDays(7))`.
-- [ ] `domain/enrollment/Enrollment.java` — `@Entity @Table(name="enrollments")`.
+- [x] `domain/enrollment/EnrollmentId.java` — `record EnrollmentId(UUID value)`.
+- [x] `domain/enrollment/EnrollmentStatus.java` — `enum { PENDING, CONFIRMED, CANCELLED, WAITLISTED }`.
+- [x] `domain/enrollment/CancellationWindow.java` — `record CancellationWindow(Duration window)` + `boolean isWithin(Instant paidAt, Instant now) { return !now.isAfter(paidAt.plus(window)); }`. 정적 상수 `CancellationWindow.SEVEN_DAYS = new CancellationWindow(Duration.ofDays(7))`.
+- [x] `domain/enrollment/Enrollment.java` — `@Entity @Table(name="enrollments")`.
   - 필드: `id (UUID)`, `classId (UUID)`, `classmateId (UUID)`, `@Enumerated(STRING) status`, `appliedAt`, `paidAt (nullable)`, `cancelledAt (nullable)`, `@Version Long version`.
   - private 기본 생성자.
   - `static Enrollment apply(ClassId, UserId, Instant)` → status PENDING.
@@ -26,8 +26,8 @@
     - status를 CANCELLED로, cancelledAt = now.
   - `void promoteFromWaitlist(Instant now)` — WAITLISTED 아니면 예외. status = PENDING. appliedAt은 유지 (DOCS).
   - `boolean isWithinCancellationWindow(Instant now)` — paidAt null이면 false, 아니면 위 정책 적용.
-- [ ] 도메인 예외 클래스: `domain/enrollment/OutsideCancellationWindowException.java` (status 422), `AlreadyCancelledException.java` (status 409), `DuplicateEnrollmentException.java` (status 409), `ClassNotOpenException.java` (status 409).
-- [ ] (Verify) `domain/enrollment/EnrollmentTest.java`.
+- [x] 도메인 예외 클래스: `domain/enrollment/OutsideCancellationWindowException.java` (status 422), `AlreadyCancelledException.java` (status 409), `DuplicateEnrollmentException.java` (status 409), `ClassNotOpenException.java` (status 409).
+- [x] (Verify) `domain/enrollment/EnrollmentTest.java`.
   - `apply()` → status PENDING, paidAt null.
   - `waitlist()` → status WAITLISTED.
   - `apply().confirm(now)` → CONFIRMED, paidAt == now.
@@ -39,4 +39,4 @@
   - 이미 CANCELLED인 상태에서 `cancel()` → `AlreadyCancelledException`.
   - WAITLISTED에서 `confirm()` → `IllegalStateTransitionException`.
   - `waitlist().promoteFromWaitlist(now)` → PENDING. appliedAt 변경 없음.
-- [ ] (Verify) `domain/enrollment/CancellationWindowTest.java` — 경계값 3개 (정확히 7일, +1ns, -1ns) 검증.
+- [x] (Verify) `domain/enrollment/CancellationWindowTest.java` — 경계값 3개 (정확히 7일, +1ns, -1ns) 검증.
