@@ -11,18 +11,18 @@
 
 ## Action Items (Checklist)
 
-- [ ] `domain/user/UserId.java` — `record UserId(UUID value)` + `static UserId of(UUID)` + `static UserId newId()`.
-- [ ] `domain/user/UserRole.java` — `enum UserRole { CREATOR, CLASSMATE }`.
-- [ ] `domain/user/User.java` — JPA `@Entity @Table(name="users")` + 도메인 의도 메서드 `register()`, `isCreator()`, `isClassmate()` 구현, setter 없음.
+- [x] `domain/user/UserId.java` — `record UserId(UUID value)` + `static UserId of(UUID)` + `static UserId newId()`.
+- [x] `domain/user/UserRole.java` — `enum UserRole { CREATOR, CLASSMATE }`.
+- [x] `domain/user/User.java` — JPA `@Entity @Table(name="users")` + 도메인 의도 메서드 `register()`, `isCreator()`, `isClassmate()` 구현, setter 없음.
   - 필드: `id (UUID)`, `role (Enum)`, `name (String, not null, length<=50)`, `createdAt (Instant)`.
   - private 기본 생성자 + 정적 팩토리 `User.register(UserRole, String, Instant)`.
-- [ ] `domain/user/UserRepository.java` — `extends JpaRepository<User, UUID>` + `Optional<User> findByIdAndRole(UUID, UserRole)`.
-- [ ] (Verify) `domain/user/UserTest.java` — 순수 JUnit으로 `register("")` → `IllegalArgumentException`, `register(null role)` → `IllegalArgumentException`, `isCreator()/isClassmate()` 동작 검증.
-- [ ] `web/user/UserController.java` — `@RestController @RequestMapping("/api/users")`.
+- [x] `domain/user/UserRepository.java` — `extends JpaRepository<User, UUID>` + `Optional<User> findByIdAndRole(UUID, UserRole)`.
+- [x] (Verify) `domain/user/UserTest.java` — 순수 JUnit으로 `register("")` → `IllegalArgumentException`, `register(null role)` → `IllegalArgumentException`, `isCreator()/isClassmate()` 동작 검증.
+- [x] `web/user/UserController.java` — `@RestController @RequestMapping("/api/users")`.
   - `POST /api/users` body `{role, name}` → `UserApplicationService.register()` → 201 + `UserResponse`.
   - `GET /api/users/me` (`@CurrentUserId UUID userId`) → `UserResponse`.
-- [ ] `web/user/dto/RegisterUserRequest.java` (`record`, `@NotBlank name`, `@NotNull role`), `UserResponse.java` (`record`).
-- [ ] `application/user/UserApplicationService.java` — `@Service @Transactional` + `register()`, `getById(UUID)` 두 메서드. `getById`에서 미존재 시 `UserNotFoundException(404)` 던짐.
-- [ ] `domain/user/UserNotFoundException.java` — `DomainException` 상속, status 404, errorCode `"USER_NOT_FOUND"`.
-- [ ] (Verify) `web/user/UserControllerTest.java` — `@WebMvcTest`로 `POST /api/users` 검증, 잘못된 body는 400 ProblemDetail.
-- [ ] (Verify) `application/user/UserApplicationServiceTest.java` — `@DataJpaTest` + 서비스 직접 인스턴스로 register/getById 동작 검증.
+- [x] `web/user/dto/RegisterUserRequest.java` (`record`, `@NotBlank name`, `@NotNull role`), `UserResponse.java` (`record`).
+- [x] `application/user/UserApplicationService.java` — `@Service @Transactional` + `register()`, `getById(UUID)` 두 메서드. `getById`에서 미존재 시 `UserNotFoundException(404)` 던짐.
+- [x] `domain/user/UserNotFoundException.java` — `DomainException` 상속, status 404, errorCode `"USER_NOT_FOUND"`.
+- [x] (Verify) `web/user/UserControllerTest.java` — `@WebMvcTest`로 `POST /api/users` 검증, 잘못된 body는 400 ProblemDetail.
+- [x] (Verify) `application/user/UserApplicationServiceTest.java` — `@DataJpaTest` + 서비스 직접 인스턴스로 register/getById 동작 검증.
