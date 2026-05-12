@@ -16,7 +16,7 @@
 
 ## Action Items (Checklist)
 
-- [ ] `domain/enrollment/EnrollmentRepository.java` — `extends JpaRepository<Enrollment, UUID>`.
+- [x] `domain/enrollment/EnrollmentRepository.java` — `extends JpaRepository<Enrollment, UUID>`.
   - `@Query("select e from Enrollment e where e.classId = :classId and e.classmateId = :classmateId and e.status in (com.example.liveclass.domain.enrollment.EnrollmentStatus.PENDING, com.example.liveclass.domain.enrollment.EnrollmentStatus.CONFIRMED, com.example.liveclass.domain.enrollment.EnrollmentStatus.WAITLISTED)") Optional<Enrollment> findActiveByClassAndClassmate(UUID classId, UUID classmateId);`
   - `@Query("select count(e) from Enrollment e where e.classId = :classId and e.status in (PENDING, CONFIRMED)") long countActiveSeatsByClassId(UUID classId);`
   - `@Query("select count(e) from Enrollment e where e.classId = :classId and e.status = :status") long countByClassIdAndStatus(UUID classId, EnrollmentStatus status);` (reconcile 검증용)
@@ -24,18 +24,18 @@
   - `Page<Enrollment> findByClassIdAndStatus(UUID classId, EnrollmentStatus status, Pageable)` (Creator students 목록용).
   - `List<Enrollment> findByClassIdAndStatusInOrderByAppliedAtAsc(UUID classId, Collection<EnrollmentStatus>)` — reconcile 쿼리.
   - **FOR UPDATE 계열 메서드는 추가하지 않는다** — ARCHITECTURE §4 가 race-critical path 에서 PG row lock 을 채택하지 않음.
-- [ ] `domain/enrollment/Enrollment.java`에 인덱스 어노테이션 추가: `@Table(name="enrollments", indexes = {@Index(name="idx_enroll_classid_appliedat", columnList="class_id, applied_at"), @Index(name="idx_enroll_classmate", columnList="classmate_id"), @Index(name="idx_enroll_classid_status", columnList="class_id, status")})`.
-- [ ] `infrastructure/PartialIndexInitializer.java` — `@Component` + `ApplicationRunner`. JDBC로 다음 SQL 실행 (멱등).
+- [x] `domain/enrollment/Enrollment.java`에 인덱스 어노테이션 추가: `@Table(name="enrollments", indexes = {@Index(name="idx_enroll_classid_appliedat", columnList="class_id, applied_at"), @Index(name="idx_enroll_classmate", columnList="classmate_id"), @Index(name="idx_enroll_classid_status", columnList="class_id, status")})`.
+- [x] `infrastructure/PartialIndexInitializer.java` — `@Component` + `ApplicationRunner`. JDBC로 다음 SQL 실행 (멱등).
   - `CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_enrollment ON enrollments (class_id, classmate_id) WHERE status IN ('PENDING','CONFIRMED','WAITLISTED');`
-- [ ] `application/enrollment/EnrollmentMirrorService.java` 작성 (skeleton).
+- [x] `application/enrollment/EnrollmentMirrorService.java` 작성 (skeleton).
   - 첫 줄 한국어 주석 `// task 02 에서 등록된 RedisScript 3개를 호출하는 thin wrapper. apply / cancelAndMaybePromote / compensateApply / primeClassStatusMirror 메서드 제공.`
   - `@Service`. 의존: `StringRedisTemplate redisTemplate`, `RedisScript<String> enrollmentApplyScript`, `RedisScript<List> enrollmentCancelPromoteScript`, `RedisScript<Long> enrollmentCompensateScript`.
   - 메서드 시그니처만 정의 (실제 호출 본문은 task 09/10 에서 구현). 본 task 에서는 빈 메서드 body 또는 `throw new UnsupportedOperationException("implemented in task 09/10")` placeholder.
   - 단 `primeClassStatusMirror(UUID classId, ClassStatus status)` 는 task 02 의 RedisTemplate 만으로 동작 가능하므로 본 task 에서 실제 구현 — `redisTemplate.opsForValue().set("class:status:" + classId, status.name(), Duration.ofMinutes(5))`.
-- [ ] (Verify) `domain/enrollment/EnrollmentRepositoryIntegrationTest.java` — Testcontainers + `@DataJpaTest`.
+- [x] (Verify) `domain/enrollment/EnrollmentRepositoryIntegrationTest.java` — Testcontainers + `@DataJpaTest`.
   - 동일 (classId, classmateId)로 active 두 건 insert 시도 → `DataIntegrityViolationException` (partial unique index 동작).
   - CANCELLED 상태로 한 건 + 새 PENDING 한 건은 같은 (classId, classmateId)여도 성공.
   - `countActiveSeatsByClassId`가 PENDING+CONFIRMED만 카운트하고 CANCELLED/WAITLISTED는 제외.
   - `findByClassIdAndStatusInOrderByAppliedAtAsc`가 appliedAt 오름차순으로 정렬되어 반환 (reconcile 입력으로 사용 가능).
-- [ ] (Verify) `infrastructure/PartialIndexInitializerTest.java` — 부팅 후 `pg_indexes` 시스템 뷰로 `uniq_active_enrollment` 존재 확인.
-- [ ] (Verify) `config/LuaScriptConfigTest.java` — `@SpringBootTest` 로 컨텍스트 로드 후 3개 RedisScript 빈이 모두 주입되는지 검증. 스크립트 본문은 placeholder 이므로 실행 검증은 task 09/10 에서.
+- [x] (Verify) `infrastructure/PartialIndexInitializerTest.java` — 부팅 후 `pg_indexes` 시스템 뷰로 `uniq_active_enrollment` 존재 확인.
+- [x] (Verify) `config/LuaScriptConfigTest.java` — `@SpringBootTest` 로 컨텍스트 로드 후 3개 RedisScript 빈이 모두 주입되는지 검증. 스크립트 본문은 placeholder 이므로 실행 검증은 task 09/10 에서.
