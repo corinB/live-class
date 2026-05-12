@@ -11,23 +11,23 @@
 
 ## Action Items (Checklist)
 
-- [ ] `domain/clazz/ClassRepository.java` — `extends JpaRepository<Class, UUID>`.
+- [x] `domain/clazz/ClassRepository.java` — `extends JpaRepository<Class, UUID>`.
   - `@Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select c from Class c where c.id = :id") Optional<Class> findByIdForUpdate(@Param("id") UUID id);`
   - `Page<Class> findByStatusOrderByCreatedAtDesc(ClassStatus, Pageable)`.
-- [ ] `application/clazz/ClassApplicationService.java` — `@Service`.
+- [x] `application/clazz/ClassApplicationService.java` — `@Service`.
   - `createDraft(UUID creatorId, CreateClassCommand)` — `@Transactional`. Creator 역할 검증 후 `Class.draft()` → `save()` → `ClassDto` 반환.
   - `transitionStatus(UUID classId, UUID requesterId, ClassStatus target)` — `@Transactional`. `findByIdForUpdate`로 잠금, target에 따라 `open()` 또는 `close()` 호출, save.
   - `getById(UUID classId)` — `@Transactional(readOnly=true)`. **`@Cacheable` 미사용 (Pre-flight 5)**. 매 호출 DB 직접 조회.
   - `listOpenClasses(Pageable pageable)` — `@Transactional(readOnly=true)`.
   - `OptimisticLockingFailureException` 재시도 1회는 `@Retryable(maxAttempts=2)` 또는 수동 try-catch.
-- [ ] `application/clazz/ClassStatusMirrorListener.java` — `@Component`. `@TransactionalEventListener(phase=AFTER_COMMIT)` 두 메서드로 `ClassOpenedEvent`, `ClassClosedEvent`를 받아 `redisTemplate.opsForValue().set("class:status:" + classId, status.name(), Duration.ofMinutes(5))` 호출. Spring Cache 가 아닌 직접 Redis String 갱신 (Pre-flight 5).
-- [ ] `domain/clazz/event/ClassOpenedEvent.java`, `ClassClosedEvent.java` — `record(ClassId, UserId, Instant occurredAt)`.
-- [ ] `Class.open()/close()` 메서드는 직접 이벤트 발행하지 않음. `ClassApplicationService`가 save 후 `ApplicationEventPublisher.publishEvent()` 호출.
-- [ ] `web/clazz/ClassController.java` — `@RestController @RequestMapping("/api/classes")`.
+- [x] `application/clazz/ClassStatusMirrorListener.java` — `@Component`. `@TransactionalEventListener(phase=AFTER_COMMIT)` 두 메서드로 `ClassOpenedEvent`, `ClassClosedEvent`를 받아 `redisTemplate.opsForValue().set("class:status:" + classId, status.name(), Duration.ofMinutes(5))` 호출. Spring Cache 가 아닌 직접 Redis String 갱신 (Pre-flight 5).
+- [x] `domain/clazz/event/ClassOpenedEvent.java`, `ClassClosedEvent.java` — `record(ClassId, UserId, Instant occurredAt)`.
+- [x] `Class.open()/close()` 메서드는 직접 이벤트 발행하지 않음. `ClassApplicationService`가 save 후 `ApplicationEventPublisher.publishEvent()` 호출.
+- [x] `web/clazz/ClassController.java` — `@RestController @RequestMapping("/api/classes")`.
   - `POST /` — `@CurrentUserId UUID creatorId`, `@Valid @RequestBody CreateClassRequest` → 201.
   - `PATCH /{id}/status` — body `{target: "OPEN"|"CLOSED"}` → 200 또는 409.
   - `GET /{id}` → 200 (캐시 적용).
   - `GET /` (paged) → 200 with `Page<ClassResponse>`.
-- [ ] `web/clazz/dto/CreateClassRequest.java`, `ClassResponse.java`, `ChangeStatusRequest.java` — record + Bean Validation 어노테이션.
-- [ ] (Verify) `web/clazz/ClassControllerTest.java` — `@WebMvcTest`로 인증/입력 검증 케이스 작성, 서비스는 `@MockBean`.
-- [ ] (Verify) `application/clazz/ClassStatusMirrorListenerTest.java` — `Class.open()` 성공 → AFTER_COMMIT 이벤트 발행 → `class:status:{id}` Redis String 값이 `OPEN` 으로 갱신되는지 Testcontainers Redis 로 검증. `@Cacheable` 캐시 동작 검증은 **삭제** — Spring Cache 미사용 (Pre-flight 5).
+- [x] `web/clazz/dto/CreateClassRequest.java`, `ClassResponse.java`, `ChangeStatusRequest.java` — record + Bean Validation 어노테이션.
+- [x] (Verify) `web/clazz/ClassControllerTest.java` — `@WebMvcTest`로 인증/입력 검증 케이스 작성, 서비스는 `@MockBean`.
+- [x] (Verify) `application/clazz/ClassStatusMirrorListenerTest.java` — `Class.open()` 성공 → AFTER_COMMIT 이벤트 발행 → `class:status:{id}` Redis String 값이 `OPEN` 으로 갱신되는지 Testcontainers Redis 로 검증. `@Cacheable` 캐시 동작 검증은 **삭제** — Spring Cache 미사용 (Pre-flight 5).
