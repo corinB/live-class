@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > 보조 문서.
 > - `ORCHESTRATION.md` — multi-agent 파이프라인 정책 (단계·산출물·차단 규칙).
-> - `AGENTS-SKILLS-HARNESS.md` — 6 agents · 6 slash skills · settings/hooks 빠른 참조.
+> - `AGENTS-SKILLS-HARNESS.md` — 1페이지 허브 (세부 카탈로그는 `docs/agents/*.md`·`docs/harness/*.md`).
 > - `DOCS.md` — DDD 도메인 설계 (바운디드 컨텍스트·애그리거트·상태 전이·도메인 이벤트·불변식).
 > - `ARCHITECTURE.md` — 동시성·캐싱·스케줄링 설계 (전략 비교, Redis ZSET + Lua atomic script 채택 사유).
 > - `CONTRIBUTING.md` — 브랜치·커밋·PR 규약.
@@ -93,7 +93,7 @@ config/                                     OpenApiConfig, WebMvcConfig, LuaScri
 
 ### 슬래시 스킬
 
-`/design-domain` · `/design-concurrency` · `/decompose-tasks` · `/setup-infra` · `/setup-git-rules` · `/exec-blueprint` — 각 스킬이 정확히 하나의 에이전트를 래핑한다(`AGENTS-SKILLS-HARNESS.md` §스킬).
+`/design-domain` · `/design-concurrency` · `/decompose-tasks` · `/setup-infra` · `/setup-git-rules` · `/exec-blueprint` — 각 스킬이 정확히 하나의 에이전트를 래핑한다(`docs/agents/skills.md`).
 
 ### 파이프라인 상태 배지
 
