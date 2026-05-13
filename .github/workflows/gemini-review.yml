@@ -30,8 +30,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Compute PR diff (truncated to 50k chars)
+      - name: Compute PR diff (truncated to fit gemini-2.5-pro context)
         id: diff
+        env:
+          # 2.5-pro의 1M token 입력 컨텍스트(약 4M chars) 안에서 시스템 프롬프트·PR 메타데이터·여유 마진을 빼고 안전하게 잡은 cutoff. 기존 50000자로는 한 PR이 보통 누적되면 잘렸음.
+          CUTOFF_CHARS: "800000"
         run: |
           set -euo pipefail
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
@@ -39,9 +42,9 @@ jobs:
           RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/**' ':(exclude)plan/**' ':(exclude)reports/**' || true)
           # 이전 구현은 `printf '%s' "$RAW_DIFF" | wc -c` 였으나, `set -o pipefail` + 큰 RAW_DIFF 조합에서 printf 가 SIGPIPE 를 받아 워크플로 자체가 실패하는 케이스가 PR #1 에서 발견됨. bash 내장 `${#var}` 로 pipe 없이 길이 측정해 우회.
           TOTAL_CHARS=${#RAW_DIFF}
-          if [ "$TOTAL_CHARS" -gt 50000 ]; then
-            # bash native substring expansion 으로 head -c 50000 의 SIGPIPE 위험도 회피.
-            DIFF=${RAW_DIFF:0:50000}
+          if [ "$TOTAL_CHARS" -gt "$CUTOFF_CHARS" ]; then
+            # bash native substring expansion 으로 head -c 의 SIGPIPE 위험도 회피.
+            DIFF=${RAW_DIFF:0:$CUTOFF_CHARS}
             TRUNCATED=true
           else
             DIFF="$RAW_DIFF"
@@ -54,6 +57,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "truncated=$TRUNCATED" >> "$GITHUB_OUTPUT"
           echo "total_chars=$TOTAL_CHARS" >> "$GITHUB_OUTPUT"
+          echo "cutoff_chars=$CUTOFF_CHARS" >> "$GITHUB_OUTPUT"
 
       - name: Call Gemini API
         id: gemini
@@ -116,13 +120,15 @@ jobs:
           REVIEW: ${{ steps.gemini.outputs.review }}
           TRUNCATED: ${{ steps.diff.outputs.truncated }}
           TOTAL_CHARS: ${{ steps.diff.outputs.total_chars }}
+          CUTOFF_CHARS: ${{ steps.diff.outputs.cutoff_chars }}
         with:
           script: |
             const review = process.env.REVIEW || '_리뷰 본문 없음._';
             const truncated = process.env.TRUNCATED === 'true';
             const totalChars = process.env.TOTAL_CHARS;
+            const cutoffChars = process.env.CUTOFF_CHARS || '800000';
             const truncNote = truncated
-              ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 50,000자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
+              ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 ${Number(cutoffChars).toLocaleString()}자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
               : '';
             const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-pro\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
             await github.rest.issues.createComment({
