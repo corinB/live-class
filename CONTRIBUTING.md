@@ -205,7 +205,37 @@ feat: added redisson lock for enrollment.
 
 ---
 
-## 4. 절대 금지 사항
+## 4. CI/CD 워크플로우 구조
+
+CI(검증)와 CD(배포)를 두 파일로 분리한다. 한 워크플로우에 묶지 않는 이유는 PR 단계에서 검증만 빠르게 돌리고, 배포는 `main`에 squash merge된 시점에만 트리거하기 위함이다.
+
+### 4.1 파일 분리
+
+| 파일 | 트리거 | 잡(job) | 책임 |
+|------|--------|---------|------|
+| `.github/workflows/ci.yml` | `pull_request` + `push` to `main` | `build-test` | `./gradlew build` + 단위·통합 테스트. 도커 이미지 빌드 없음 |
+| `.github/workflows/cd.yml` | `push` to `main` (only) | `push-image` → `deploy-ec2` | 도커 이미지 푸시 후 EC2 배포. PR에서는 절대 동작하지 않음 |
+
+- `ci.yml`은 PR 단계에서 모든 변경의 빌드·테스트 통과를 강제한다. `main` push에서도 회귀 감지용으로 한 번 더 돈다.
+- `cd.yml`은 squash merge가 끝난 직후 `main` 기준으로만 배포 파이프라인을 실행한다. PR HEAD에서 시크릿이 노출될 위험을 제거한다.
+- `cd.yml`의 `deploy-ec2`는 `push-image` 성공을 `needs:`로 의존시켜 실패 시 배포를 차단한다.
+
+### 4.2 Branch protection 수동 설정
+
+`cd.yml`이 `main` push 보호를 가정하기 때문에, GitHub Settings에서 한 번만 수동 등록한다(저장소 관리자 권한 필요).
+
+1. `Settings` → `Branches` → `Add branch protection rule`.
+2. `Branch name pattern`에 `main` 입력.
+3. `Require a pull request before merging` 활성화. `Required reviewers`는 기존 정책 그대로 둔다(현재 1인 개발 · self-review 허용).
+4. `Require status checks to pass before merging` 활성화 후 검색창에 `Build & Test` 입력 → `ci.yml`의 `build-test` 잡 이름을 선택한다. status check 이름은 워크플로우의 `jobs.<id>.name` 또는 잡 id에 따라 결정되므로, 이름이 다르면 `ci.yml`의 실제 잡 이름을 확인 후 등록한다.
+5. `Require branches to be up to date before merging` 활성화 권장.
+6. `Do not allow bypassing the above settings` 활성화하여 관리자도 직접 push를 차단한다.
+
+이 설정은 IaC로 관리하지 않는다. 워크플로우 잡 이름을 바꾸면 branch protection의 status check 항목도 함께 갱신해야 한다(`docs/harness/03-migration.md`의 환경 가정 표 참조).
+
+---
+
+## 5. 절대 금지 사항
 
 - `main`에 직접 push하는 것을 금지한다.
 - `git push --force` 및 `git reset --hard`를 금지한다 (pre-bash hook이 차단한다).

@@ -13,6 +13,7 @@
 | `gh` CLI | 권장 | PR 생성·머지·상태 확인용. 부재 시 GitHub 웹 또는 curl로 대체 |
 | `markdownlint-cli` | 선택 | `post-write-md-lint.sh`가 호출. 없으면 no-op |
 | `gawk` | 선택 | `post-write-warn-bean-collision.sh`가 사용 가능성. 부재 시 bean 충돌 경고 비활성 |
+| GitHub branch protection rule (수동 등록) | 필수 (CD 도입 시) | `ci.yml`/`cd.yml` 분리 시 branch protection rule을 수동으로 등록해야 cd의 main push 보호 가정이 유효해진다 |
 
 - 환경 변수: `CLAUDE_PROJECT_DIR`은 Claude Code가 자동 주입. hook에서 `$CLAUDE_PROJECT_DIR`로 프로젝트 루트 참조.
 - 워크트리 작업 시 `CLAUDE_WORKTREE_PATH` 환경변수를 메인 세션이 주입 — `pre-write-worktree-guard.sh`가 활용.

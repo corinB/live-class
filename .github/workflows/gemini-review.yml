@@ -100,7 +100,7 @@ jobs:
             -X POST \
             -H "Content-Type: application/json" \
             -d "$REQUEST_BODY" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY")
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=$GEMINI_API_KEY")
 
           REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Gemini 응답 파싱 실패. 원본 응답을 확인하세요."')
 
@@ -124,7 +124,7 @@ jobs:
             const truncNote = truncated
               ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 50,000자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
               : '';
-            const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-flash\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
+            const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-pro\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
