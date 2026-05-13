@@ -91,19 +91,24 @@ jobs:
 
           USER_PROMPT="PR Title: $PR_TITLE\n\nPR Description:\n$PR_BODY\n\nDiff (truncated=$TRUNCATED):\n\`\`\`diff\n$DIFF\n\`\`\`"
 
-          REQUEST_BODY=$(jq -n \
+          # 800k 자 cutoff에서 REQUEST_BODY를 -d 인자로 직접 넘기면 OS ARG_MAX (Linux 보통 ~128KB)에
+          # 막혀 `/usr/bin/curl: Argument list too long`이 발생한다. 임시 파일에 바디를 쓰고
+          # --data-binary @file 로 전달해 인자 길이 제약을 회피한다.
+          BODY_FILE="$(mktemp)"
+          trap 'rm -f "$BODY_FILE"' EXIT
+          jq -n \
             --arg sys "$SYSTEM_PROMPT" \
             --arg user "$USER_PROMPT" \
             '{
               system_instruction: { parts: [{ text: $sys }] },
               contents: [{ role: "user", parts: [{ text: $user }] }],
               generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
-            }')
+            }' > "$BODY_FILE"
 
           RESPONSE=$(curl -sS \
             -X POST \
             -H "Content-Type: application/json" \
-            -d "$REQUEST_BODY" \
+            --data-binary "@$BODY_FILE" \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=$GEMINI_API_KEY")
 
           # 파싱 실패 시 진단 정보를 함께 게시한다. .candidates[0].content.parts[0].text 가 없으면 다음 후보들에서 단서 추출.

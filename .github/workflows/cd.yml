@@ -8,10 +8,6 @@ on:
       - 'live-class/**'
       - 'front/**'
       - 'docker-compose.yml'
-      - 'Dockerfile'
-      - 'live-class/Dockerfile'
-      - 'front/Dockerfile'
-      - '.github/workflows/cd.yml'
 
 jobs:
 

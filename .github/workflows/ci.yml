@@ -6,28 +6,18 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'plan/**'
-      - 'reports/**'
-      - '.claude/**'
-      - 'docs/**'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.gitattributes'
-      - 'LICENSE'
+    paths:
+      - 'live-class/**'
+      - 'front/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'plan/**'
-      - 'reports/**'
-      - '.claude/**'
-      - 'docs/**'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.gitattributes'
-      - 'LICENSE'
+    paths:
+      - 'live-class/**'
+      - 'front/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
 
 jobs:
 
