@@ -10,14 +10,19 @@ description: DDD 도메인 설계 에이전트를 호출해 DOCS.md(바운디드
 
 ## Preconditions
 
-None — this is the first step in the pipeline.
+- `context.yaml` must exist at the repo root.
 
 ## Body
 
 When the user invokes this skill, do the following:
 
-1. Preconditions: 없음. 파이프라인의 첫 번째 단계이므로 바로 진행한다.
+1. 사전 조건 확인. `context.yaml`이 repo root에 없으면 다음을 출력하고 STOP.
+
+   Missing: context.yaml; reseed from .claude/templates/context.yaml.template before continuing.
+
 2. Use the Task tool with `subagent_type: "ddd-domain-architect"` and pass the user's free-text argument as the task description.
 3. Sub-agent 반환 후 다음 안내를 출력한다.
+
+
 
    다음 단계: `/design-concurrency` — 동시성·락 전략을 설계하고 ARCHITECTURE.md를 생성합니다.

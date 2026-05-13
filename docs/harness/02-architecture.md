@@ -167,6 +167,7 @@ fi
 | `git mv plan/before/`만 차단했으나 `mv`·`Move-Item`·`bash -c "git mv ..."` 우회 발견 | 매처 union을 모든 변종으로 확장 + shell 재진입 내부 재검사 | `pre-bash-block-plan-move-{without-report,with-unchecked}.sh` |
 | `rm -rf` 변종(`rm -fR` · `rm --recursive --force` · PowerShell `Remove-Item -Recurse`)이 단순 패턴으로 통과 | 정규식 union 전면 확장 + shell 재진입 + 파서 부재 시 fail-closed | `pre-bash-block-destructive.sh` |
 | 보고서·체크리스트 없이 `plan/before → plan/after` 이동 시도 → 작업 추적성 손실 | 이동 명령을 hook에서 검증, 두 조건 미충족 시 deny | `pre-bash-block-plan-move-*.sh` |
+| `context.yaml`의 `last_indexed`·라인 수·`related_docs`가 실제와 어긋난 채로 머지되는 사례 | audit 스크립트로 drift 진단 + Stop/PostToolUse hook이 warn 통보 + 6 에이전트 보일러플레이트를 `_prelude.md`로 단일화 | `stop-warn-context-stale.sh`, `post-write-context-stale.sh`, `_prelude.md` + `resolve-preludes.sh` |
 
 ## 회귀 테스트 패턴
 

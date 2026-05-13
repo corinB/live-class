@@ -16,14 +16,15 @@
 - `PreToolUse`가 `permissionDecision: deny`를 반환하면 도구 호출 자체가 취소된다.
 - `Stop`이 비-zero exit하면 세션 종료가 차단되어 다음 turn으로 이어진다 (Codex stop-review-gate가 이 메커니즘을 사용).
 
-## 12개 hook 카탈로그
+## 14개 hook 카탈로그
 
 | 이름 | Event / matcher | 차단/감지 대상 |
 |---|---|---|
-| `session-start.sh` | `SessionStart` | (감지 X) — 매 세션 첫 줄에 pipeline 배지 prepend |
+| `session-start.sh` | `SessionStart` | (감지 X) — 매 세션 첫 줄에 pipeline 배지 prepend + `_prelude.md` 존재 검증(부재 시 세션 차단) |
 | `user-prompt-submit.sh` | `UserPromptSubmit` | (감지 X) — 매 사용자 메시지 앞 pipeline 배지 prepend |
 | `stop-warn-design-changes.sh` | `Stop` | 세션 중 `DOCS.md`/`ARCHITECTURE.md` 변경 시 경고 |
 | `stop-warn-stale-followups.sh` | `Stop` | `reports/` 안 follow-up 항목이 stale일 때 경고 |
+| `stop-warn-context-stale.sh` | `Stop` | `context.yaml`의 `last_indexed`·라인 수·`related_docs` 경로가 실제와 어긋날 때 stderr 경고 (warn-only) |
 | `pre-bash-block-destructive.sh` | `PreToolUse:Bash` | `rm -rf` · `find -delete` · `git push --force` · `git reset --hard` · `git clean -f` · `Remove-Item -Recurse` 등 (shell re-entry 포함) |
 | `pre-bash-block-plan-move-without-report.sh` | `PreToolUse:Bash` | `plan/before/NN_*.md → plan/after/` 이동 시 `reports/NN_*.md` 부재면 deny |
 | `pre-bash-block-plan-move-with-unchecked.sh` | `PreToolUse:Bash` | 같은 이동에서 작업 체크리스트가 모두 `[x]` 아니면 deny |
@@ -33,6 +34,7 @@
 | `pre-write-worktree-guard.sh` | `PreToolUse:Write|Edit` | `CLAUDE_WORKTREE_PATH` 환경변수가 설정된 경우 그 경로 밖 쓰기 경고 |
 | `post-write-md-lint.sh` | `PostToolUse:Write|Edit` | `.md` 파일 변경 시 `markdownlint-cli` 실행(없으면 no-op) |
 | `post-write-warn-bean-collision.sh` | `PostToolUse:Write|Edit` | Spring `@Service`/`@Component` 빈 이름 충돌 가능성 감지 시 경고 |
+| `post-write-context-stale.sh` | `PostToolUse:Write|Edit` | 추적 대상(DOCS·ARCH·README·`.claude/agents/*`·`.claude/skills/*`·`docs/**` 등) 편집 직후 audit 호출, drift 시 stderr 경고 |
 
 공유 헬퍼.
 

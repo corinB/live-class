@@ -10,15 +10,16 @@ description: 동시성 설계 에이전트를 호출해 ARCHITECTURE.md(정원 �
 
 ## Preconditions
 
+- `context.yaml` must exist at the repo root.
 - `DOCS.md` must exist at the repo root (produced by `/design-domain`).
 
 ## Body
 
 When the user invokes this skill, do the following:
 
-1. 사전 조건 확인. `DOCS.md`가 repo root에 없으면 다음을 출력하고 STOP.
+1. 사전 조건 확인. 아래 파일 중 하나라도 없으면 해당 항목을 명시하고 STOP.
 
-   Missing: DOCS.md; run `/design-domain` first.
+   Missing: <list>; reseed `context.yaml` from `.claude/templates/context.yaml.template` and/or run `/design-domain` first.
 
 2. Use the Task tool with `subagent_type: "concurrency-architect"` and pass the user's free-text argument as the task description.
 3. Sub-agent 반환 후 다음 안내를 출력한다.
