@@ -22,7 +22,7 @@ project_identity:
     - registry: "Docker Hub"
     - deploy: "AWS EC2 single instance (docker compose runtime)"
     - ci_cd: "GitHub Actions (build-test → push-image → deploy-ec2)"
-    - code_review_ai: "Gemini API (gemini-2.5-flash) via GitHub Actions on PR open/sync"
+    - code_review_ai: "Gemini API (gemini-2.5-pro) via GitHub Actions on PR open/sync"
 
 business_context:
   domains:

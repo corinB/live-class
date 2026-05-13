@@ -1,4 +1,4 @@
-# PR 자동 코드 리뷰 — Google Gemini API (gemini-1.5-flash) 호출 후 결과를 PR 댓글로 게시
+# PR 자동 코드 리뷰 — Google Gemini API (gemini-2.5-pro) 호출 후 결과를 PR 댓글로 게시
 name: Gemini AI Code Review
 
 on:
@@ -97,7 +97,7 @@ jobs:
             '{
               system_instruction: { parts: [{ text: $sys }] },
               contents: [{ role: "user", parts: [{ text: $user }] }],
-              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+              generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
             }')
 
           RESPONSE=$(curl -sS \
@@ -106,7 +106,20 @@ jobs:
             -d "$REQUEST_BODY" \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=$GEMINI_API_KEY")
 
-          REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Gemini 응답 파싱 실패. 원본 응답을 확인하세요."')
+          # 파싱 실패 시 진단 정보를 함께 게시한다. .candidates[0].content.parts[0].text 가 없으면 다음 후보들에서 단서 추출.
+          REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '
+            if (.candidates[0].content.parts[0].text // "") != "" then
+              .candidates[0].content.parts[0].text
+            elif (.error.message // "") != "" then
+              "Gemini API error: " + .error.message
+            elif (.candidates[0].finishReason // "") != "" then
+              "Gemini finishReason=" + (.candidates[0].finishReason | tostring)
+              + (if .promptFeedback.blockReason then " · blockReason=" + (.promptFeedback.blockReason | tostring) else "" end)
+              + " — 모델이 본문 없이 종료. promptFeedback/usageMetadata는 Actions 로그에서 확인 가능."
+            else
+              "Gemini 응답 파싱 실패. 원본 응답: " + (. | tostring | .[0:500])
+            end
+          ')
 
           {
             echo 'review<<__REVIEW_EOF__'
