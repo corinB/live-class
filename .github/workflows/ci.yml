@@ -1,0 +1,61 @@
+# live-class CI — build/test on PR and main push
+# Extracted from ci-cd.yml; mirrors the build-test job verbatim.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'live-class/**'
+      - 'front/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'live-class/**'
+      - 'front/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/ci.yml'
+
+jobs:
+
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    # Cancel an in-flight Build & Test on the same branch when a new push arrives.
+    concurrency:
+      group: ci-build-test-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # gradle/actions/setup-gradle@v4 (2026 Q1) reworked the cache-key algorithm.
+      # The 512-char key collision pattern that caused HTTP 400 on every restore
+      # (visible as 'Failed to restore gradle-home-v1' annotation on every PR
+      # since the workflow was added) is fixed in v4.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Drop --no-daemon (irrelevant on ephemeral runners) and clean (discards
+      # compiled output that --build-cache could reuse). Enable build cache and
+      # disable filesystem watching (pointless on one-shot CI invocations).
+      - name: Run tests
+        working-directory: live-class
+        run: ./gradlew test --build-cache --no-watch-fs
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: live-class/build/reports/tests/

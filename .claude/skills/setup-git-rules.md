@@ -10,15 +10,16 @@ git 마스터 컨벤션 에이전트(`git-master-conventions`)를 호출해 CONT
 
 ## Preconditions
 
+- `context.yaml` must exist at the repo root.
 - `plan/before/` must contain at least one `.md` file (other than `.gitkeep`), produced by `/decompose-tasks`.
 
 ## Body
 
 When the user invokes this skill, do the following:
 
-1. 사전 조건 확인. `plan/before/` 에 `.md` 파일이 하나도 없으면 다음을 출력하고 STOP.
+1. 사전 조건 확인. 아래 항목 중 하나라도 없으면 해당 내용을 명시하고 STOP.
 
-   Missing: plan/before/*.md; run `/decompose-tasks` first.
+   Missing: <list>; reseed `context.yaml` from `.claude/templates/context.yaml.template` and/or run `/decompose-tasks` first.
 
 2. Use the Task tool with `subagent_type: "git-master-conventions"` and pass the user's free-text argument as the task description.
 3. Sub-agent 반환 후 다음 안내를 출력한다.

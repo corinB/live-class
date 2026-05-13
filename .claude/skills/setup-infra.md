@@ -10,15 +10,16 @@ description: 인프라 CI/CD 에이전트를 호출해 docker-compose, Dockerfil
 
 ## Preconditions
 
+- `context.yaml` must exist at the repo root.
 - `ARCHITECTURE.md` must exist at the repo root (produced by `/design-concurrency`).
 
 ## Body
 
 When the user invokes this skill, do the following:
 
-1. 사전 조건 확인. `ARCHITECTURE.md`가 없으면 다음을 출력하고 STOP.
+1. 사전 조건 확인. 아래 파일 중 하나라도 없으면 해당 항목을 명시하고 STOP.
 
-   Missing: ARCHITECTURE.md; run `/design-concurrency` first.
+   Missing: <list>; reseed `context.yaml` from `.claude/templates/context.yaml.template` and/or run `/design-concurrency` first.
 
 2. Use the Task tool with `subagent_type: "infra-cicd-operator"` and pass the user's free-text argument as the task description.
 3. Sub-agent 반환 후 다음 안내를 출력한다.

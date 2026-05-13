@@ -1,0 +1,101 @@
+# {{PROJECT_NAME}} — Context Configuration Template
+# 용도: 새 프로젝트 시작 시 본 파일을 `context.yaml`로 복사한 뒤 placeholder를 채운다.
+# 모든 에이전트/스킬/하네스는 repo root의 `context.yaml`을 우선 스캔한다.
+
+project_identity:
+  name: "{{PROJECT_NAME}}"
+  description: >
+    {{ONE_TO_THREE_SENTENCE_PROJECT_SUMMARY}}
+  version: "{{VERSION}}"
+  repository: "{{REPO_URL}}"
+  hiring_assignment_deadline: "{{OPTIONAL_DEADLINE_OR_REMOVE}}"
+  main_tech_stack:
+    - language: "{{LANGUAGE_AND_VERSION}}"
+    - framework: "{{FRAMEWORK_AND_VERSION}}"
+    - build: "{{BUILD_TOOL}}"
+    - database: "{{RDBMS_AND_VERSION}}"
+    - cache_and_lock: "{{CACHE_OR_LOCK_TOOL}}"
+    - api_docs: "{{API_DOCS_TOOL}}"
+    - container: "{{CONTAINER_TOOL}}"
+    - registry: "{{IMAGE_REGISTRY}}"
+    - deploy: "{{DEPLOY_TARGET}}"
+    - ci_cd: "{{CI_CD_PIPELINE}}"
+    - code_review_ai: "{{OPTIONAL_AI_REVIEW_TOOL_OR_REMOVE}}"
+
+business_context:
+  domains:
+    - name: "{{DOMAIN_NAME}}"
+      description: "{{DOMAIN_RESPONSIBILITY}}"
+      core_entities: ["{{ENTITY_A}}", "{{ENTITY_B}}"]
+      states: ["{{STATE_1}}", "{{STATE_2}}"]
+      invariants:
+        - "{{INVARIANT_1}}"
+        - "{{INVARIANT_2}}"
+  glossary:
+    - term: "{{TERM}}"
+      definition: "{{DEFINITION}}"
+
+engineering_principles:
+  coding_standards:
+    - "{{STANDARD_1}}"
+    - "{{STANDARD_2}}"
+  error_handling:
+    - pattern: "{{GLOBAL_HANDLER_OR_PROBLEM_DETAIL}}"
+    - retry_policy: "{{RETRY_POLICY_IF_ANY}}"
+  testing:
+    - "{{UNIT_TEST_POLICY}}"
+    - "{{INTEGRATION_TEST_POLICY}}"
+
+context_map:
+  directories:
+    - path: "{{SRC_PATH}}"
+      contains: "{{WHAT_LIVES_THERE}}"
+    - path: "plan/before"
+      contains: "scrum-task-decomposer가 생성한 마이크로 태스크 명세"
+    - path: "plan/after"
+      contains: "blueprint-executor-worker가 완료한 태스크"
+    - path: "reports"
+      contains: "각 에이전트의 작업 종료 보고서. 형식: reports/{NN_step}_{agent-name}_{YYYY-MM-DD}.md"
+    - path: ".claude/agents"
+      contains: "서브에이전트 정의"
+    - path: ".claude/skills"
+      contains: "슬래시 커맨드 (에이전트 wrapper)"
+    - path: ".claude/templates"
+      contains: "산출물 템플릿"
+  request_flow:
+    - "{{REQUEST_FLOW_STEP_1}}"
+    - "{{REQUEST_FLOW_STEP_2}}"
+  external_dependencies:
+    - service: "{{SERVICE_NAME}}"
+      purpose: "{{PURPOSE}}"
+
+constraints_and_rules:
+  strictly_prohibited:
+    - "{{HARD_PROHIBITION_1}}"
+    - "{{HARD_PROHIBITION_2}}"
+  performance_requirements:
+    - "{{PERFORMANCE_TARGET_1}}"
+  language_policy:
+    - "사용자 응답은 한국어. 기술 산출물(커밋 메시지, 설계 문서, 코드 주석)은 영어."
+
+metadata:
+  last_indexed: "{{ISO_DATE_TODAY}}"
+  index_author: "{{AUTHOR_NAME_AND_EMAIL}}"
+  primary_branch: "main"
+  related_docs:
+    - path: "DOCS.md"
+      description: "도메인 설계 (DDD, {{LINES}} lines)"
+    - path: "ARCHITECTURE.md"
+      description: "동시성 설계 ({{LINES}} lines)"
+    - path: "ORCHESTRATION.md"
+      description: "멀티 에이전트 파이프라인 정책"
+    - path: "AGENTS-SKILLS-HARNESS.md"
+      description: "3-pillar 1페이지 허브 (세부는 docs/agents/*, docs/harness/* 참조)"
+    - path: "CLAUDE.md"
+      description: "행동 규칙 + 언어 정책 + 프로젝트 포인터"
+    - path: "README.md"
+      description: "(작성 예정) 프로젝트 README"
+  pipeline_state_files:
+    - "plan/before/*.md  # pending tasks"
+    - "plan/after/*.md   # completed tasks"
+    - "reports/*.md      # 각 agent 보고서"

@@ -10,6 +10,7 @@ description: 지정한 plan/before/{task-file}.md를 blueprint-executor-worker�
 
 ## Preconditions
 
+- `context.yaml` must exist at the repo root.
 - `DOCS.md` must exist at the repo root.
 - `ARCHITECTURE.md` must exist at the repo root.
 - The task file the user passes (e.g. `plan/before/01_class-entity.md`) must exist.
@@ -20,7 +21,7 @@ When the user invokes this skill, do the following:
 
 1. 사전 조건 확인. 아래 항목 중 하나라도 없으면 해당 내용을 명시하고 STOP.
 
-   Missing: <list>; ensure DOCS.md, ARCHITECTURE.md, and the specified task file all exist.
+   Missing: <list>; ensure context.yaml, DOCS.md, ARCHITECTURE.md, and the specified task file all exist.
 
 2. Worktree 경로 자동 도출.
 

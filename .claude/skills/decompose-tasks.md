@@ -10,6 +10,7 @@ DOCS.md와 ARCHITECTURE.md를 기반으로 구현 태스크를 분해하는 스�
 
 ## Preconditions
 
+- `context.yaml` must exist at the repo root.
 - `DOCS.md` must exist at the repo root.
 - `ARCHITECTURE.md` must exist at the repo root.
 
@@ -19,7 +20,7 @@ When the user invokes this skill, do the following:
 
 1. 사전 조건 확인. 아래 파일 중 하나라도 없으면 해당 항목을 명시하고 STOP.
 
-   Missing: <list>; run `/design-domain` and `/design-concurrency` first.
+   Missing: <list>; reseed `context.yaml` from `.claude/templates/context.yaml.template`, and/or run `/design-domain` and `/design-concurrency` first.
 
 2. Use the Task tool with `subagent_type: "scrum-task-decomposer"` and pass the user's free-text argument as the task description.
 3. Sub-agent 반환 후 다음 안내를 출력한다.

@@ -8,7 +8,7 @@ Project-specific context for Claude Code (claude.ai/code) when working in this w
 
 This directory is **not an application repository**. It is an *orchestrator workspace*: six sub-agent definitions live in `.claude/agents/` and, when invoked in the correct order, they collectively produce a Spring Boot **modular monolith course-registration (수강신청) system** from a blank slate.
 
-At the time of writing there are no source files, no build files, and no design documents yet — only the agent definitions and this documentation. The main Claude Code session (i.e., you, by default) acts as the **orchestrator**. It dispatches sub-agents and does **not** itself write Spring Boot code. Implementation happens inside `blueprint-executor-worker` instances running in isolated git worktrees.
+The live-class Spring Boot application now lives under `live-class/` and the design documents `DOCS.md` (287 lines) and `ARCHITECTURE.md` (472 lines) are in place, with multiple worker tasks already merged (`plan/after/` contains the completed set; `plan/before/` holds pending work). The main Claude Code session (i.e., you, by default) acts as the **orchestrator**. It dispatches sub-agents and does **not** itself write Spring Boot code. Implementation happens inside `blueprint-executor-worker` instances running in isolated git worktrees.
 
 ## Target domain
 
@@ -95,12 +95,16 @@ ddd-domain-architect ──► DOCS.md
 
 ## Build / test commands
 
-**Status: not yet applicable.** The pipeline has not produced application code or a build descriptor. Build and test commands will be defined once both of the following exist:
+All commands run from `live-class/`:
 
-- `docker-compose.yml` (emitted by `infra-cicd-operator`)
-- A Gradle wrapper (`gradlew` + `build.gradle`) or Maven POM (`pom.xml`) emitted by the first `blueprint-executor-worker`
+- `./gradlew build` — compile and produce the bootJar
+- `./gradlew test` — full JUnit 5 suite (Testcontainers integration tests require a running Docker daemon; pure domain unit tests do not)
+- `./gradlew test --tests <fqcn>` — run a single test class
+- `./gradlew bootRun` — local server (requires PostgreSQL and Redis; Swagger UI at `http://localhost:8080/swagger-ui.html`)
 
-When that happens, the next session should replace this section with the actual commands (e.g. `./gradlew test`, `./gradlew bootRun`, `docker compose up`). Until then, the only meaningful "command" is agent dispatch — invoke a sub-agent via the Task tool with the matching `subagent_type`, or via the `/agents` interface.
+Root-level infrastructure stack uses `docker compose up` / `docker compose down` via the `docker-compose.yml` emitted by `infra-cicd-operator`.
+
+Agent dispatch is invoked via the Task tool with the matching `subagent_type`, or via the `/agents` interface. See `docs/agents/agents.md` for the routing table.
 
 ## Worktree convention for workers
 
@@ -136,4 +140,4 @@ Update `ORCHESTRATION.md` when:
 - The pipeline order changes (an agent is added/removed/reordered)
 - The expected output path of an agent changes
 - The tech stack is decided more concretely (DB vendor chosen, Java version locked, etc.)
-- Real build/test commands become available (replace the placeholder section above)
+- Build/test commands change (replace the section above)

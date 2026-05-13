@@ -1,4 +1,4 @@
-# PR 자동 코드 리뷰 — Google Gemini API (gemini-1.5-flash) 호출 후 결과를 PR 댓글로 게시
+# PR 자동 코드 리뷰 — Google Gemini API (gemini-2.5-pro) 호출 후 결과를 PR 댓글로 게시
 name: Gemini AI Code Review
 
 on:
@@ -30,8 +30,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Compute PR diff (truncated to 50k chars)
+      - name: Compute PR diff (truncated to fit gemini-2.5-pro context)
         id: diff
+        env:
+          # 2.5-pro의 1M token 입력 컨텍스트(약 4M chars) 안에서 시스템 프롬프트·PR 메타데이터·여유 마진을 빼고 안전하게 잡은 cutoff. 기존 50000자로는 한 PR이 보통 누적되면 잘렸음.
+          CUTOFF_CHARS: "800000"
         run: |
           set -euo pipefail
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
@@ -39,9 +42,9 @@ jobs:
           RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/**' ':(exclude)plan/**' ':(exclude)reports/**' || true)
           # 이전 구현은 `printf '%s' "$RAW_DIFF" | wc -c` 였으나, `set -o pipefail` + 큰 RAW_DIFF 조합에서 printf 가 SIGPIPE 를 받아 워크플로 자체가 실패하는 케이스가 PR #1 에서 발견됨. bash 내장 `${#var}` 로 pipe 없이 길이 측정해 우회.
           TOTAL_CHARS=${#RAW_DIFF}
-          if [ "$TOTAL_CHARS" -gt 50000 ]; then
-            # bash native substring expansion 으로 head -c 50000 의 SIGPIPE 위험도 회피.
-            DIFF=${RAW_DIFF:0:50000}
+          if [ "$TOTAL_CHARS" -gt "$CUTOFF_CHARS" ]; then
+            # bash native substring expansion 으로 head -c 의 SIGPIPE 위험도 회피.
+            DIFF=${RAW_DIFF:0:$CUTOFF_CHARS}
             TRUNCATED=true
           else
             DIFF="$RAW_DIFF"
@@ -54,6 +57,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "truncated=$TRUNCATED" >> "$GITHUB_OUTPUT"
           echo "total_chars=$TOTAL_CHARS" >> "$GITHUB_OUTPUT"
+          echo "cutoff_chars=$CUTOFF_CHARS" >> "$GITHUB_OUTPUT"
 
       - name: Call Gemini API
         id: gemini
@@ -87,22 +91,40 @@ jobs:
 
           USER_PROMPT="PR Title: $PR_TITLE\n\nPR Description:\n$PR_BODY\n\nDiff (truncated=$TRUNCATED):\n\`\`\`diff\n$DIFF\n\`\`\`"
 
-          REQUEST_BODY=$(jq -n \
+          # 800k 자 cutoff에서 REQUEST_BODY를 -d 인자로 직접 넘기면 OS ARG_MAX (Linux 보통 ~128KB)에
+          # 막혀 `/usr/bin/curl: Argument list too long`이 발생한다. 임시 파일에 바디를 쓰고
+          # --data-binary @file 로 전달해 인자 길이 제약을 회피한다.
+          BODY_FILE="$(mktemp)"
+          trap 'rm -f "$BODY_FILE"' EXIT
+          jq -n \
             --arg sys "$SYSTEM_PROMPT" \
             --arg user "$USER_PROMPT" \
             '{
               system_instruction: { parts: [{ text: $sys }] },
               contents: [{ role: "user", parts: [{ text: $user }] }],
-              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
-            }')
+              generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+            }' > "$BODY_FILE"
 
           RESPONSE=$(curl -sS \
             -X POST \
             -H "Content-Type: application/json" \
-            -d "$REQUEST_BODY" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY")
+            --data-binary "@$BODY_FILE" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=$GEMINI_API_KEY")
 
-          REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // "Gemini 응답 파싱 실패. 원본 응답을 확인하세요."')
+          # 파싱 실패 시 진단 정보를 함께 게시한다. .candidates[0].content.parts[0].text 가 없으면 다음 후보들에서 단서 추출.
+          REVIEW_BODY=$(printf '%s' "$RESPONSE" | jq -r '
+            if (.candidates[0].content.parts[0].text // "") != "" then
+              .candidates[0].content.parts[0].text
+            elif (.error.message // "") != "" then
+              "Gemini API error: " + .error.message
+            elif (.candidates[0].finishReason // "") != "" then
+              "Gemini finishReason=" + (.candidates[0].finishReason | tostring)
+              + (if .promptFeedback.blockReason then " · blockReason=" + (.promptFeedback.blockReason | tostring) else "" end)
+              + " — 모델이 본문 없이 종료. promptFeedback/usageMetadata는 Actions 로그에서 확인 가능."
+            else
+              "Gemini 응답 파싱 실패. 원본 응답: " + (. | tostring | .[0:500])
+            end
+          ')
 
           {
             echo 'review<<__REVIEW_EOF__'
@@ -116,15 +138,17 @@ jobs:
           REVIEW: ${{ steps.gemini.outputs.review }}
           TRUNCATED: ${{ steps.diff.outputs.truncated }}
           TOTAL_CHARS: ${{ steps.diff.outputs.total_chars }}
+          CUTOFF_CHARS: ${{ steps.diff.outputs.cutoff_chars }}
         with:
           script: |
             const review = process.env.REVIEW || '_리뷰 본문 없음._';
             const truncated = process.env.TRUNCATED === 'true';
             const totalChars = process.env.TOTAL_CHARS;
+            const cutoffChars = process.env.CUTOFF_CHARS || '800000';
             const truncNote = truncated
-              ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 50,000자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
+              ? `\n\n> ⚠️ Diff가 ${totalChars}자라서 처음 ${Number(cutoffChars).toLocaleString()}자만 모델에 전달되었습니다. 누락된 부분은 사람이 확인해 주세요.`
               : '';
-            const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-flash\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
+            const body = `🤖 **Gemini AI 자동 리뷰 (참고용)**\n\n${review}${truncNote}\n\n---\n_이 리뷰는 \`gemini-2.5-pro\` 모델이 자동 생성한 결과입니다. 머지 결정은 사람이 합니다._`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
