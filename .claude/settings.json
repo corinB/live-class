@@ -50,6 +50,8 @@
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-plan-move-without-report.sh\""}]},
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-plan-move-with-unchecked.sh\""}]},
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-detect-korean-cwd.sh\""}]},
+      {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-large-output.sh\""}]},
+      {"matcher": "Read",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-read-size-guard.sh\""}]},
       {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-write-worktree-guard.sh\""}]}
     ],
     "PostToolUse": [
