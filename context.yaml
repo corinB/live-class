@@ -159,14 +159,14 @@ constraints_and_rules:
     - "단, 한국어 산출물(DOCS.md, ARCHITECTURE.md, README.md 등)은 한국어 본문 유지."
 
 metadata:
-  last_indexed: "2026-05-12"
+  last_indexed: "2026-05-13"
   index_author: "corinB <gkdisrha2020@gmail.com>"
   primary_branch: "main"
   related_docs:
     - path: "DOCS.md"
-      description: "도메인 설계 (DDD, 285 lines)"
+      description: "도메인 설계 (DDD, 287 lines)"
     - path: "ARCHITECTURE.md"
-      description: "동시성 설계 (402 lines)"
+      description: "동시성 설계 (472 lines)"
     - path: "ORCHESTRATION.md"
       description: "멀티 에이전트 파이프라인 정책"
     - path: "AGENTS-SKILLS-HARNESS.md"
@@ -182,7 +182,7 @@ metadata:
     - path: "docs/harness/03-migration.md"
       description: "환경 가정·이식 체크리스트·알려진 함정·troubleshooting"
     - path: "CLAUDE.md"
-      description: "일반 행동 규칙 10개 + 프로젝트 포인터"
+      description: "행동 규칙 + 언어 정책(PR 제목 영어·본문/reports 한국어) + 프로젝트 포인터"
     - path: "README.md"
       description: "(Day 5 작성 예정) 채용 과제 제출 README"
   pipeline_state_files:
