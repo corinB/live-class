@@ -123,7 +123,8 @@ config/                                     OpenApiConfig, WebMvcConfig, LuaScri
 
 - 사용자 응답·대화 = **한국어**.
 - 커밋 메시지 · planning docs · 코드 주석 · 설계 문서(DOCS/ARCHITECTURE) = **영어**.
-- **PR 본문(제목·summary·테스트 절차 등 body 전체) = 한국어.** 사람이 읽는 텍스트이므로 커밋 메시지 규약을 적용하지 않는다. 코드/명령/파일명/hook 이름 등 식별자는 원문 유지.
+- **PR 제목 = 영어 (Conventional Commits)**, **PR 본문(summary·테스트 절차 등 body 전체) = 한국어**. Squash Merge 시 PR 제목이 그대로 squash 커밋 subject가 되므로 제목은 커밋 메시지 규약(50자 이내 영어 명령형, `<type>(scope): ...`)을 따른다. 본문은 사람이 읽는 텍스트라 한국어. 코드/명령/파일명/hook 이름 등 식별자는 한국어 본문 안에서도 원문 유지.
+- **`reports/*.md` (워커 end-of-run 보고서) = 한국어.** 사람이 읽는 운영 보고서이며 PR 본문과 동일 정책. 코드/명령/파일명/식별자는 원문 유지.
 - 새 소스 파일 첫 줄에는 한 줄짜리 한국어 헤더 주석을 넣는다(부모 `~/CLAUDE.md` 규칙 6).
 
 ---
