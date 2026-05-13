@@ -7,8 +7,11 @@ Checks performed:
 2. metadata.related_docs[*].description containing "N lines" matches the
    real `wc -l` count of the referenced markdown.
 3. Each metadata.related_docs[*].path exists on disk, with one explicit
-   exception: README.md is allowed to be absent if its description
-   contains a "(... 작성 예정)" note.
+   exception: a path whose basename is README.md is allowed to be absent
+   if its description contains a "(... 작성 예정)" note. The pending-note
+   exemption does NOT apply to any other path — a missing DOCS.md or
+   ARCHITECTURE.md is always drift, even if its description mentions
+   "예정".
 
 Exit code 0 = no drift, 1 = drift found, 2 = configuration error.
 """
@@ -65,12 +68,16 @@ def audit(doc: dict) -> list[str]:
         abs_path = REPO_ROOT / path_str
         exists = abs_path.is_file()
 
-        if not exists and not PENDING_NOTE_RE.search(description):
-            drifts.append(f"related_docs[{path_str}]: file missing and no pending note")
+        if not exists:
+            is_readme = Path(path_str).name.lower() == "readme.md"
+            has_pending_note = PENDING_NOTE_RE.search(description) is not None
+            if is_readme and has_pending_note:
+                continue
+            drifts.append(f"related_docs[{path_str}]: file missing")
             continue
 
         match = LINE_COUNT_RE.search(description)
-        if not match or not exists:
+        if not match:
             continue
         recorded = int(match.group(1))
         actual = count_lines(abs_path)
