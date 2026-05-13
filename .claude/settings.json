@@ -21,7 +21,17 @@
       "Read(*.key)",
       "Read(*.pem)",
       "Read(credentials*)",
-      "Read(secrets*)"
+      "Read(secrets*)",
+      "Bash(cat .env*)",
+      "Bash(cat *.key)",
+      "Bash(cat *.pem)",
+      "Bash(cat credentials*)",
+      "Bash(cat secrets*)",
+      "Bash(type .env*)",
+      "Bash(Get-Content .env*)",
+      "Bash(more .env*)",
+      "Bash(head .env*)",
+      "Bash(tail .env*)"
     ]
   },
   "hooks": {
@@ -39,6 +49,7 @@
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-destructive.sh\""}]},
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-plan-move-without-report.sh\""}]},
       {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-block-plan-move-with-unchecked.sh\""}]},
+      {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-bash-detect-korean-cwd.sh\""}]},
       {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-write-worktree-guard.sh\""}]}
     ],
     "PostToolUse": [

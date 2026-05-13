@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `git mv plan/before/NN_*.md plan/after/...` 명령 실행 직전에 reports/NN_*.md 가 있는지 검사해 누락 시 차단하는 훅
+# `git mv|mv|Move-Item plan/before/NN_*.md plan/after/...` 명령 실행 직전 reports/NN_*.md 누락 시 차단하는 훅
 set -euo pipefail
 
 # stdin JSON payload 소비. Claude Code 가 PreToolUse 훅에 ToolUse JSON 을 전달한다.
@@ -18,22 +18,44 @@ command_text=$(printf '%s' "${_payload}" | sed -nE 's/.*"command"[[:space:]]*:[[
 command_text=${command_text//\\\"/\"}
 command_text=${command_text//\\\\/\\}
 
-# `git mv plan/before/NN_xxx.md plan/after/...` 패턴이 아니면 통과
-# 명령의 시작 또는 셸 separator(;, &, |) 직후 토큰이 `git mv plan/before/NN_` 이어야 매칭.
-# 이는 echo 인자 등 다른 명령 안에 포함된 같은 텍스트가 false-positive 로 잡히지 않도록 함.
-if ! printf '%s' "${command_text}" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+mv[[:space:]]+plan/before/[0-9]{2}_'; then
+# plan-move 매처: `mv`, `git mv`, `Move-Item` 셋 중 하나로 plan/before/NN_ 이동.
+# 명령의 시작 또는 셸 separator(;, &, |) 직후 토큰이어야 한다.
+plan_move_re='(^|[;&|][[:space:]]*)((git[[:space:]]+)?mv|[Mm]ove(-Item)?)[[:space:]]+'
+
+# shell re-entry 안쪽 문자열 추출 (bash/sh/pwsh/powershell -c|-Command "..." / cmd /c "...").
+inner_text=$(printf '%s' "${command_text}" | sed -nE "s/.*\\b(bash|sh|pwsh|powershell)\\b([[:space:]]+(-c|-Command))?[[:space:]]+['\"]([^'\"]*)['\"].*/\\4/p" | head -n1)
+if [ -z "${inner_text}" ]; then
+  inner_text=$(printf '%s' "${command_text}" | sed -nE 's/.*\bcmd(\.exe)?\b[[:space:]]+\/[cC][[:space:]]+["'"'"']([^"'"'"']*)["'"'"'].*/\2/p' | head -n1)
+fi
+
+matched_in_raw=0
+matched_in_inner=0
+if printf '%s' "${command_text}" | grep -qE "${plan_move_re}" \
+   && printf '%s' "${command_text}" | grep -qE 'plan/before/[0-9]{2}_'; then
+  matched_in_raw=1
+fi
+if [ "${matched_in_raw}" -eq 0 ] && [ -n "${inner_text}" ] \
+   && printf '%s' "${inner_text}" | grep -qE "${plan_move_re}" \
+   && printf '%s' "${inner_text}" | grep -qE 'plan/before/[0-9]{2}_'; then
+  matched_in_inner=1
+fi
+if [ "${matched_in_raw}" -eq 0 ] && [ "${matched_in_inner}" -eq 0 ]; then
   exit 0
 fi
 
-# plan/before/NN_*.md 에서 NN 2자리 추출 (여러 개여도 첫 번째만)
-nn=$(printf '%s' "${command_text}" | sed -nE 's@.*plan/before/([0-9]{2})_[^[:space:]]*\.md.*@\1@p' | head -n1)
+# NN 2자리 추출
+source_text="${command_text}"
+if [ "${matched_in_inner}" -eq 1 ]; then
+  source_text="${inner_text}"
+fi
+nn=$(printf '%s' "${source_text}" | sed -nE "s@.*plan/before/([0-9]{2})_[^[:space:]\"']*\\.md.*@\\1@p" | head -n1)
 
 if [ -z "${nn}" ]; then
   exit 0
 fi
 
 # 매칭 보고서 검색 — reports/NN_*.md 가 존재해야 한다 (.gitkeep 제외)
-matches=$(find reports -maxdepth 1 -name "${nn}_*.md" ! -name ".gitkeep" 2>/dev/null | head -n5)
+matches=$(find reports -maxdepth 1 -name "${nn}_*.md" ! -name ".gitkeep" -print 2>/dev/null | head -n5)
 
 if [ -z "${matches}" ]; then
   cat >&2 <<EOF
@@ -47,7 +69,7 @@ if [ -z "${matches}" ]; then
 해결:
   1. .claude/templates/report.md.template 을 기반으로 reports/${nn}_*.md 를 작성합니다.
   2. Input Summary / What Was Done / Rationale & Tradeoffs / Follow-ups 4개 섹션을 채웁니다.
-  3. 작성 완료 후 다시 plan/before → plan/after 이동 명령을 실행합니다.
+  3. 작성 완료 후 다시 plan/before -> plan/after 이동 명령을 실행합니다.
 
 본 훅은 context.yaml 의 \`pipeline_state_files\` 정책과 \`context_map.directories.reports\` 형식 규칙을 강제합니다.
 EOF
