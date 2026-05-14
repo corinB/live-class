@@ -19,7 +19,14 @@ try {
 
 const fp = (p && p.tool_input && typeof p.tool_input.file_path === 'string') ? p.tool_input.file_path : '';
 // LLM-facing internal artifacts that should be English by policy.
-if (!/(?:CLAUDE\.md|context\.yaml)$/i.test(fp)) process.exit(0);
+const isClaudeMd = /CLAUDE\.md$/i.test(fp);
+const isContextYaml = /context\.yaml$/i.test(fp);
+if (!isClaudeMd && !isContextYaml) process.exit(0);
+
+// Per-file escape hatch: each artifact has its own bypass env var so disabling
+// one check does not silently disable the other.
+if (isClaudeMd && process.env.CLAUDE_MD_KOREAN_OK) process.exit(0);
+if (isContextYaml && process.env.CONTEXT_YAML_KOREAN_OK) process.exit(0);
 
 let text;
 try {
@@ -44,7 +51,7 @@ const ratio = korean / total;
 const THRESHOLD = 0.15;
 if (ratio > THRESHOLD) {
   const baseName = fp.replace(/^.*[\\/]/, '');
-  const bypassVar = /context\.yaml$/i.test(fp) ? 'CONTEXT_YAML_KOREAN_OK=1' : 'CLAUDE_MD_KOREAN_OK=1';
+  const bypassVar = isContextYaml ? 'CONTEXT_YAML_KOREAN_OK=1' : 'CLAUDE_MD_KOREAN_OK=1';
   const msg = `[hook:claudemd-english] ${fp}: Korean ratio ${(ratio * 100).toFixed(1)}% > ${(THRESHOLD * 100).toFixed(0)}%. ${baseName} is an internal LLM-facing artifact and should be English. Set ${bypassVar} to bypass intentionally.`;
   process.stderr.write(msg + '\n');
   if (process.env.LOG_FILE) {
