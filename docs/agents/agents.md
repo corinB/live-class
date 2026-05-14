@@ -62,7 +62,7 @@ graph TD
 - **언제 부르나**: 분해된 단일 작업 명세를 Java/Spring 코드로 옮길 때.
 - **격리**: 메인이 지정한 `../worktrees/feature-<slug>` 안에서만 작업. 메인 저장소·다른 워크트리는 절대 안 만짐.
 - **출력**: 워크트리 안의 `src/main/java/**` · `src/test/java/**` + 작업 명세 체크리스트 모두 `[x]` + `reports/<NN>_<agent-name>_<YYYY-MM-DD>.md` 종료 보고서.
-- **plan 이동 책임 분리**: 워커는 `plan/before/` → `plan/after/`를 직접 옮기지 않는다. 이동은 PR 머지 후 별도 chore 커밋이 처리하고, PreToolUse hook이 보고서 존재와 체크리스트 완료를 검증한 뒤에만 통과시킨다.
+- **plan 이동**: 워커가 **같은 PR 안에서** `plan/before/NN_*.md` → `plan/after/NN_*.md`를 직접 `git mv`한다. PreToolUse hook이 보고서 존재와 체크리스트 완료를 검증해 두 전제가 충족됐을 때만 통과한다. 결과적으로 PR 한 개에 code + report + plan 전이가 모두 들어가 squash merge로 atomic 반영된다. (`worker.md` Step 6, `blueprint-executor-worker.md` Output Format 2와 동일 룰.)
 - **원칙**: 창의적 일탈 0. 설계는 `DOCS.md`·`ARCHITECTURE.md`가 절대 출처.
 - **막히면**: 네 입력(`DOCS.md`·`ARCHITECTURE.md`·작업 명세·worktree 경로) 중 하나라도 부재 시 STOP.
 
