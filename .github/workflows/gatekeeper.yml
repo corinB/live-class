@@ -1,5 +1,5 @@
 # Automation pipeline: auto-merges automation:worker PRs when CI + Gemini pass
-# NOTE: codex-review marker check is temporarily removed until the Codex GitHub App producer ships.
+# NOTE: A third codex-review marker condition was considered and permanently dropped on 2026-05-15. Codex review continues to run only as the local stop-time gate inside the main Claude Code session.
 name: Gatekeeper
 
 on:

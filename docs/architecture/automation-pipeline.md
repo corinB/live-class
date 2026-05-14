@@ -105,7 +105,7 @@ A PR labeled `automation:worker` is merged when **both** conditions hold:
 1. `Build & Test` check suite has conclusion `success`.
 2. The latest Gemini review comment reports `P0 == 0` and `P1 == 0`.
 
-The third condition (`codex-review: pass` marker) was removed pending a Codex producer. It can be re-added by reverting the relevant lines of `gatekeeper.yml`.
+A third condition (`codex-review: pass` marker) was considered and permanently dropped on 2026-05-15. Codex review continues to run only as the local stop-time gate inside the main Claude Code session, not as a PR-level producer.
 
 If either condition fails, Gatekeeper labels the PR `needs-human` and posts an Issue comment pinging the author. Roll-back of an incorrectly merged PR is **manual**.
 
@@ -149,12 +149,10 @@ The template automatically applies the `maestro:auto` label.
 - Anthropic-API-driven autonomous mode (rejected for cost).
 - Slack/email notifications.
 - Multi-tenant Maestro (one Maestro instance per repository for now; Issues queue inside the main session).
-- Codex review as a GitHub App.
 - Automatic roll-back of merged PRs.
 
 ## Follow-up work
 
-- Codex review GitHub App so we can re-enable the third gatekeeper condition.
 - Token cost dashboard (per-Issue and per-day rollups).
 - Optional `CLAUDE_CODE_OAUTH_TOKEN` path if subscription auth in CI becomes officially supported, which would let us re-enable worker-dispatch.yml.
 - Auto-writing `reports/NN_*.md` after successful merge, plus `plan/before -> plan/after` move.

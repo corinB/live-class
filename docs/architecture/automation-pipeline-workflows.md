@@ -81,7 +81,7 @@ Removed during realign (required `ANTHROPIC_API_KEY`):
 
 ## How to extend
 
-To add a new gatekeeper condition (e.g. a Codex marker once a producer ships), edit `.github/workflows/gatekeeper.yml`:
+To add a new gatekeeper condition (Codex review producer is permanently out of scope per the 2026-05-15 decision; this is for any other future producer), edit `.github/workflows/gatekeeper.yml`:
 1. Add a `Check condition N — ...` step that sets `${{ steps.STEP.outputs.PASS }}`.
 2. Add the new condition to both the "Auto-merge if all conditions pass" step's `if:` and the "Label needs-human" step's `if:`.
 3. Add the new condition to the `needs-human` Issue comment.
