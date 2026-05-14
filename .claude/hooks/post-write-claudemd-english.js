@@ -1,4 +1,4 @@
-// PostToolUse:Write|Edit 로 CLAUDE.md 가 한국어 비율 임계치를 넘게 작성됐는지 검사하는 노드 스크립트
+// PostToolUse:Write|Edit 로 LLM-facing 내부 artifact (CLAUDE.md, context.yaml) 가 한국어 비율 임계치를 넘게 작성됐는지 검사하는 노드 스크립트
 'use strict';
 
 const fs = require('fs');
@@ -18,7 +18,8 @@ try {
 }
 
 const fp = (p && p.tool_input && typeof p.tool_input.file_path === 'string') ? p.tool_input.file_path : '';
-if (!/CLAUDE\.md$/i.test(fp)) process.exit(0);
+// LLM-facing internal artifacts that should be English by policy.
+if (!/(?:CLAUDE\.md|context\.yaml)$/i.test(fp)) process.exit(0);
 
 let text;
 try {
@@ -42,11 +43,13 @@ if (total < 200) process.exit(0);
 const ratio = korean / total;
 const THRESHOLD = 0.15;
 if (ratio > THRESHOLD) {
-  const msg = `[hook:claudemd-english] ${fp}: Korean ratio ${(ratio * 100).toFixed(1)}% > ${(THRESHOLD * 100).toFixed(0)}%. CLAUDE.md is an internal technical artifact and should be English. Set CLAUDE_MD_KOREAN_OK=1 to bypass intentionally.`;
+  const baseName = fp.replace(/^.*[\\/]/, '');
+  const bypassVar = /context\.yaml$/i.test(fp) ? 'CONTEXT_YAML_KOREAN_OK=1' : 'CLAUDE_MD_KOREAN_OK=1';
+  const msg = `[hook:claudemd-english] ${fp}: Korean ratio ${(ratio * 100).toFixed(1)}% > ${(THRESHOLD * 100).toFixed(0)}%. ${baseName} is an internal LLM-facing artifact and should be English. Set ${bypassVar} to bypass intentionally.`;
   process.stderr.write(msg + '\n');
   if (process.env.LOG_FILE) {
     try {
-      fs.appendFileSync(process.env.LOG_FILE, `${new Date().toISOString()}\tpost-write\tclaudemd-korean\t${msg}\n`);
+      fs.appendFileSync(process.env.LOG_FILE, `${new Date().toISOString()}\tpost-write\tlangcheck-korean\t${msg}\n`);
     } catch (e) {}
   }
 }
