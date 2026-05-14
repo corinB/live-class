@@ -3,9 +3,13 @@
 name: Gatekeeper
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
   check_suite:
+    types: [completed]
+  check_run:
     types: [completed]
 
 jobs:
@@ -35,18 +39,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Resolve the PR number from either event
-          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
-          else
-            # check_suite — find PRs whose head SHA matches
-            HEAD_SHA="${{ github.event.check_suite.head_sha }}"
-            PR_NUM=$(gh pr list \
-              --state open \
-              --json number,headRefOid,labels \
-              --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
-              | head -1)
-          fi
+          # Resolve the PR number from whichever event fired
+          case "${{ github.event_name }}" in
+            pull_request|pull_request_review)
+              PR_NUM="${{ github.event.pull_request.number }}"
+              ;;
+            check_run)
+              HEAD_SHA="${{ github.event.check_run.head_sha }}"
+              PR_NUM=$(gh pr list \
+                --state open \
+                --json number,headRefOid,labels \
+                --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
+                | head -1)
+              ;;
+            check_suite|*)
+              HEAD_SHA="${{ github.event.check_suite.head_sha }}"
+              PR_NUM=$(gh pr list \
+                --state open \
+                --json number,headRefOid,labels \
+                --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
+                | head -1)
+              ;;
+          esac
 
           if [ -z "$PR_NUM" ]; then
             echo "No matching automation:worker PR found — nothing to gate."
