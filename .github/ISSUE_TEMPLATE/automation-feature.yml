@@ -1,0 +1,60 @@
+name: Automation Feature Request
+description: Submit a feature request to be decomposed and implemented by the Maestro + Worker automation pipeline.
+title: "[Feature] "
+labels:
+  - "maestro:auto"
+assignees: []
+
+body:
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: |
+        Define what "done" means as a markdown checklist.
+        Each item will become a verifiable condition for the Worker's PR.
+      placeholder: |
+        - [ ] GET /health returns 200 with `{"status": "ok"}`
+        - [ ] Response time < 50ms under load
+        - [ ] Integration test covers the endpoint
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: |
+        Which directories, modules, or bounded contexts can this work touch?
+        The Maestro enforces that Workers only edit files inside this scope.
+      placeholder: |
+        - `live-class/src/main/java/com/example/liveclass/web/`
+        - `live-class/src/test/java/`
+        - No changes to domain layer or ARCHITECTURE.md
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgently does this need to land?
+      options:
+        - P0 — Critical (blocks release or production)
+        - P1 — High (important for current sprint)
+        - P2 — Normal (nice to have, no deadline pressure)
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context (optional)
+      description: |
+        Background, related issues, or technical constraints the Maestro should be aware of.
+        Leave blank if not applicable.
+      placeholder: |
+        Related to PR #42. Depends on the User aggregate being in OPEN state.
+    validations:
+      required: false

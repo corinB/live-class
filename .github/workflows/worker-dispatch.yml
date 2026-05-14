@@ -1,0 +1,153 @@
+# Automation pipeline: receives repository_dispatch worker-task and runs Worker subagents in parallel
+name: Worker Dispatch
+
+on:
+  repository_dispatch:
+    types: [worker-task]
+
+jobs:
+  prepare-matrix:
+    name: Prepare Worker Matrix
+    runs-on: ubuntu-latest
+    if: vars.AUTOMATION_ENABLED == 'true'
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      base_branch: ${{ steps.meta.outputs.base_branch }}
+      issue_number: ${{ steps.meta.outputs.issue_number }}
+
+    steps:
+      - name: Kill-switch check
+        run: |
+          echo "AUTOMATION_ENABLED=${{ vars.AUTOMATION_ENABLED }}"
+
+      - name: Extract dispatch metadata
+        id: meta
+        run: |
+          echo "base_branch=${{ github.event.client_payload.base_branch }}" >> "$GITHUB_OUTPUT"
+          echo "issue_number=${{ github.event.client_payload.issue_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build task matrix
+        id: matrix
+        run: |
+          # client_payload.manifest is the full manifest JSON
+          TASKS='${{ toJson(github.event.client_payload.manifest.tasks) }}'
+          # Build matrix include list: [{nn, file, role, deps, cost_budget_tokens}]
+          MATRIX=$(echo "$TASKS" | jq -c '{include: .}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  worker:
+    name: Worker NN=${{ matrix.nn }}
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    if: vars.AUTOMATION_ENABLED == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    strategy:
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+      fail-fast: false   # independent workers must not cancel each other
+
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-matrix.outputs.base_branch }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code SDK
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Derive worker branch name
+        id: branch
+        run: |
+          SLUG=$(echo "${{ matrix.file }}" \
+            | sed 's|plan/before/||' \
+            | sed 's/\.md$//' \
+            | sed 's/_\(Logic_Implementer\|Infra_Operator\|Quality_Guardian\|Generalist_Worker\)_/-/' \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/_/-/g')
+          BRANCH="feature/task-${SLUG}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Create git worktree
+        id: worktree
+        run: |
+          WORKTREE_PATH="/tmp/worktree-${{ matrix.nn }}-$$"
+          git worktree add "$WORKTREE_PATH" -b "${{ steps.branch.outputs.branch }}"
+          echo "path=$WORKTREE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Run Worker subagent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TASK_FILE: ${{ matrix.file }}
+          WORKTREE_PATH: ${{ steps.worktree.outputs.path }}
+          BASE_BRANCH: ${{ needs.prepare-matrix.outputs.base_branch }}
+          WORKER_TOKEN_BUDGET: ${{ matrix.cost_budget_tokens }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node - <<'EOF'
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+
+          const agentPath = path.join(process.cwd(), '.claude/agents/worker.md');
+          const taskFile = path.join(process.cwd(), process.env.TASK_FILE);
+          const worktreePath = process.env.WORKTREE_PATH;
+          const baseBranch = process.env.BASE_BRANCH;
+
+          if (!fs.existsSync(agentPath)) {
+            console.error('worker.md not found — has chore/harness-automation-design been merged?');
+            process.exit(1);
+          }
+
+          const prompt = `You are running as the Worker subagent.
+          TASK_FILE=${process.env.TASK_FILE}
+          WORKTREE_PATH=${worktreePath}
+          BASE_BRANCH=${baseBranch}
+          Read ${agentPath} for your full instructions.
+          Implement the task, run tests, open a PR labeled automation:worker, write a reports/NN_*.md.
+          Print the PR URL to stdout when done.`;
+
+          try {
+            execSync(
+              `claude --agent-file ${agentPath} -p "${prompt.replace(/"/g, '\\"')}"`,
+              {
+                stdio: 'inherit',
+                env: { ...process.env },
+                cwd: worktreePath,
+              }
+            );
+          } catch (err) {
+            console.error('Worker subagent failed:', err.message);
+            process.exit(1);
+          }
+          EOF
+
+      - name: Remove worktree on success
+        if: success()
+        run: |
+          git worktree remove --force "${{ steps.worktree.outputs.path }}" || true
+
+      - name: Label PR needs-human on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Best-effort: find the PR for this branch and add needs-human label
+          PR_NUM=$(gh pr list --head "${{ steps.branch.outputs.branch }}" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$PR_NUM" ]; then
+            gh pr edit "$PR_NUM" --add-label "needs-human"
+            gh issue comment "${{ needs.prepare-matrix.outputs.issue_number }}" \
+              --body "Worker NN=${{ matrix.nn }} failed. PR #${PR_NUM} labeled \`needs-human\`. Use \`@claude fix ...\` to retry."
+          else
+            gh issue comment "${{ needs.prepare-matrix.outputs.issue_number }}" \
+              --body "Worker NN=${{ matrix.nn }} failed before opening a PR. Check workflow run for details."
+          fi
