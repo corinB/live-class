@@ -1,0 +1,72 @@
+# Automation pipeline: rebases open automation:worker PRs when main is updated
+name: Auto Rebase
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  rebase-worker-prs:
+    name: Rebase Worker PRs
+    runs-on: ubuntu-latest
+    if: vars.AUTOMATION_ENABLED == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Kill-switch check
+        run: echo "AUTOMATION_ENABLED=${{ vars.AUTOMATION_ENABLED }}"
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Rebase all open automation:worker PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List open PRs labeled automation:worker
+          PR_LIST=$(gh pr list \
+            --label "automation:worker" \
+            --state open \
+            --json number,headRefName \
+            --jq '.[] | "\(.number) \(.headRefName)"')
+
+          if [ -z "$PR_LIST" ]; then
+            echo "No open automation:worker PRs found."
+            exit 0
+          fi
+
+          while IFS= read -r line; do
+            PR_NUM=$(echo "$line" | awk '{print $1}')
+            HEAD_BRANCH=$(echo "$line" | awk '{print $2}')
+
+            echo "Attempting rebase for PR #${PR_NUM} (${HEAD_BRANCH})..."
+
+            # Attempt gh pr update-branch --rebase
+            if gh pr update-branch --rebase "$PR_NUM" 2>&1; then
+              echo "PR #${PR_NUM} rebased successfully."
+            else
+              echo "PR #${PR_NUM} rebase failed — conflict detected."
+
+              # Label needs-human
+              gh pr edit "$PR_NUM" --add-label "needs-human" || true
+
+              # Post a comment pinging @claude so comment-handler can pick it up
+              gh pr comment "$PR_NUM" --body "$(cat <<'COMMENT'
+          Automatic rebase against \`main\` failed due to a merge conflict.
+
+          A human or `@claude rebase` is needed to resolve this manually:
+          1. Check out the branch locally.
+          2. Run `git rebase main` and resolve conflicts.
+          3. Force-push the branch (requires branch protection override or manual rebase).
+
+          Labeled \`needs-human\`.
+          COMMENT
+          )"
+            fi
+          done <<< "$PR_LIST"

@@ -1,0 +1,167 @@
+# Automation pipeline: auto-merges automation:worker PRs when CI + Gemini pass
+# NOTE: codex-review marker check is temporarily removed until the Codex GitHub App producer ships.
+name: Gatekeeper
+
+on:
+  pull_request_review:
+    types: [submitted]
+  check_suite:
+    types: [completed]
+
+jobs:
+  evaluate:
+    name: Evaluate Merge Readiness
+    runs-on: ubuntu-latest
+    # Only gate on automation:worker PRs; fork PRs never expose secrets (no pull_request_target)
+    if: vars.AUTOMATION_ENABLED == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: read
+
+    steps:
+      - name: Kill-switch check
+        run: echo "AUTOMATION_ENABLED=${{ vars.AUTOMATION_ENABLED }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Find target PR
+        id: target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Resolve the PR number from either event
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+          else
+            # check_suite — find PRs whose head SHA matches
+            HEAD_SHA="${{ github.event.check_suite.head_sha }}"
+            PR_NUM=$(gh pr list \
+              --state open \
+              --json number,headRefOid,labels \
+              --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
+              | head -1)
+          fi
+
+          if [ -z "$PR_NUM" ]; then
+            echo "No matching automation:worker PR found — nothing to gate."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+
+            # Confirm label
+            HAS_LABEL=$(gh pr view "$PR_NUM" --json labels \
+              --jq '[.labels[].name] | contains(["automation:worker"]) | tostring')
+            echo "has_label=$HAS_LABEL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check condition 1 — Build & Test green
+        id: ci
+        if: steps.target.outputs.skip == 'false' && steps.target.outputs.has_label == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.target.outputs.pr_number }}"
+          HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid --jq '.headRefOid')
+
+          STATUS=$(gh api \
+            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
+            --jq '.check_suites[]
+              | select(.app.slug == "github-actions")
+              | .conclusion' \
+            | grep -c "^success$" || echo "0")
+
+          TOTAL=$(gh api \
+            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
+            --jq '.check_suites[]
+              | select(.app.slug == "github-actions")
+              | .conclusion' \
+            | wc -l | tr -d ' ')
+
+          if [ "$STATUS" -gt "0" ] && [ "$STATUS" = "$TOTAL" ]; then
+            echo "ci_green=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check condition 2 — Gemini P0=0 and P1=0
+        id: gemini
+        if: steps.target.outputs.skip == 'false' && steps.target.outputs.has_label == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.target.outputs.pr_number }}"
+
+          # Find the latest Gemini review comment (body contains "P0" and "P1")
+          GEMINI_COMMENT=$(gh pr view "$PR_NUM" --json comments \
+            --jq '[.comments[] | select(.body | test("P0|gemini"; "i"))] | last | .body' \
+            2>/dev/null || echo "")
+
+          if [ -z "$GEMINI_COMMENT" ]; then
+            echo "gemini_pass=false" >> "$GITHUB_OUTPUT"
+            echo "No Gemini review comment found."
+          else
+            # Look for P0 == 0 and P1 == 0 patterns (e.g., "P0: 0" or "P0=0")
+            P0=$(echo "$GEMINI_COMMENT" | grep -oP 'P0[=:]\s*\K\d+' | head -1 || echo "1")
+            P1=$(echo "$GEMINI_COMMENT" | grep -oP 'P1[=:]\s*\K\d+' | head -1 || echo "1")
+            if [ "$P0" = "0" ] && [ "$P1" = "0" ]; then
+              echo "gemini_pass=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "gemini_pass=false" >> "$GITHUB_OUTPUT"
+              echo "Gemini reported P0=$P0, P1=$P1"
+            fi
+          fi
+
+      - name: Auto-merge if all conditions pass
+        if: |
+          steps.target.outputs.skip == 'false' &&
+          steps.target.outputs.has_label == 'true' &&
+          steps.ci.outputs.ci_green == 'true' &&
+          steps.gemini.outputs.gemini_pass == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.target.outputs.pr_number }}"
+          echo "All gatekeeper conditions met. Auto-merging PR #${PR_NUM}."
+          gh pr merge "$PR_NUM" --squash --auto \
+            --subject "$(gh pr view $PR_NUM --json title --jq '.title')"
+
+      - name: Label needs-human if any condition fails
+        if: |
+          steps.target.outputs.skip == 'false' &&
+          steps.target.outputs.has_label == 'true' &&
+          (
+            steps.ci.outputs.ci_green != 'true' ||
+            steps.gemini.outputs.gemini_pass != 'true'
+          )
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.target.outputs.pr_number }}"
+          CI="${{ steps.ci.outputs.ci_green }}"
+          GEMINI="${{ steps.gemini.outputs.gemini_pass }}"
+
+          gh pr edit "$PR_NUM" --add-label "needs-human" || true
+
+          # Find related issue (if any) from PR body
+          ISSUE_NUM=$(gh pr view "$PR_NUM" --json body \
+            --jq '.body | capture("Refs: #(?P<n>[0-9]+)") | .n' \
+            2>/dev/null || echo "")
+
+          MSG="Gatekeeper blocked auto-merge for PR #${PR_NUM}.
+          - Build & Test: ${CI}
+          - Gemini review (P0=0 and P1=0): ${GEMINI}
+
+          Please resolve and use \`@claude fix ...\` to retry."
+
+          gh pr comment "$PR_NUM" --body "$MSG" || true
+
+          if [ -n "$ISSUE_NUM" ]; then
+            gh issue comment "$ISSUE_NUM" --body "$MSG" || true
+          fi
