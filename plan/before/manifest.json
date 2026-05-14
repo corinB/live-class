@@ -1,4 +1,12 @@
 {
-  "issue": 47,
-  "tasks": []
+  "issue": 51,
+  "tasks": [
+    {
+      "nn": "18",
+      "file": "plan/before/18_Logic_Implementer_Add_Pong_Endpoint.md",
+      "role": "Logic_Implementer",
+      "deps": [],
+      "cost_budget_tokens": 30000
+    }
+  ]
 }
