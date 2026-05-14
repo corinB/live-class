@@ -25,13 +25,13 @@ None. Independent task. Can run on top of latest `main`. PR #50 (the Gatekeeper 
 
 ## Action Items (Checklist)
 
-- [ ] Inspect `live-class/src/main/java/com/example/liveclass/web/ping/` to refresh on the canonical shape from task #15. Mirror it under `web/pong/`.
-- [ ] Create `PongController` with `@RestController` and a `GET /api/pong` mapping that returns a simple record / Map producing `{"ping": true}`. Add the one-line Korean header comment per parent CLAUDE.md rule 6 (e.g. `// 자동화 파이프라인 스모크용 pong 엔드포인트 컨트롤러`).
-- [ ] Open `live-class/src/main/java/com/example/liveclass/web/auth/MockUserFilter.java` and add `/api/pong` to the same public-path whitelist used by `/api/ping`. Whitelist add only — do not change the filter's logic, ordering, or any other path. If the whitelist mechanism cannot be located or has changed shape since PR #49, STOP and post an Issue comment instead of inventing a new mechanism.
-- [ ] Create `PongControllerTest` under `live-class/src/test/java/com/example/liveclass/web/pong/`. Use `@WebMvcTest(PongController.class)` (or a `MockMvc` standalone setup). Assert: HTTP 200, content type `application/json`, body matches `{"ping": true}`. Send the request WITHOUT an `X-User-Id` header to lock in the no-auth requirement.
-- [ ] Run `cd live-class && ./gradlew test --tests '*PongControllerTest'` and confirm green.
-- [ ] Run the full `./gradlew test` once to confirm no regression elsewhere (including the existing `PingControllerTest`).
-- [ ] Open PR with the standard repo conventions: English Conventional Commits title (e.g. `feat(web): add GET /api/pong smoke endpoint`), Korean PR body, commit footer including `Refs: plan/before/18_Logic_Implementer_Add_Pong_Endpoint.md` and `Refs: #51`. Branch name MUST be `feature/task-18-add-pong-endpoint` per CONTRIBUTING.md.
+- [x] Inspect `live-class/src/main/java/com/example/liveclass/web/ping/` to refresh on the canonical shape from task #15. Mirror it under `web/pong/`.
+- [x] Create `PongController` with `@RestController` and a `GET /api/pong` mapping that returns a simple record / Map producing `{"ping": true}`. Add the one-line Korean header comment per parent CLAUDE.md rule 6 (e.g. `// 자동화 파이프라인 스모크용 pong 엔드포인트 컨트롤러`).
+- [x] Open `live-class/src/main/java/com/example/liveclass/web/auth/MockUserFilter.java` and add `/api/pong` to the same public-path whitelist used by `/api/ping`. Whitelist add only — do not change the filter's logic, ordering, or any other path. If the whitelist mechanism cannot be located or has changed shape since PR #49, STOP and post an Issue comment instead of inventing a new mechanism.
+- [x] Create `PongControllerTest` under `live-class/src/test/java/com/example/liveclass/web/pong/`. Use `@WebMvcTest(PongController.class)` (or a `MockMvc` standalone setup). Assert: HTTP 200, content type `application/json`, body matches `{"ping": true}`. Send the request WITHOUT an `X-User-Id` header to lock in the no-auth requirement.
+- [x] Run `cd live-class && ./gradlew test --tests '*PongControllerTest'` and confirm green.
+- [x] Run the full `./gradlew test` once to confirm no regression elsewhere (including the existing `PingControllerTest`).
+- [x] Open PR with the standard repo conventions: English Conventional Commits title (e.g. `feat(web): add GET /api/pong smoke endpoint`), Korean PR body, commit footer including `Refs: plan/before/18_Logic_Implementer_Add_Pong_Endpoint.md` and `Refs: #51`. Branch name MUST be `feature/task-18-add-pong-endpoint` per CONTRIBUTING.md.
 
 ## Notes for the worker
 - This issue is the **second** end-to-end automation pipeline smoke run. The first (Issue #47 / PR #49) proved Maestro + Worker work; this run verifies that PR #50's Gatekeeper trigger fix (`workflow_run: workflows: [CI, Gemini AI Code Review]` replacing the dead `check_run/check_suite: completed` triggers) actually causes auto-merge to fire end-to-end without `needs-human` ever appearing.
