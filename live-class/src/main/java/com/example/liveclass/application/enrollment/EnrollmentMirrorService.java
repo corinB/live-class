@@ -84,7 +84,8 @@ public class EnrollmentMirrorService {
                     List.of("enrolled:" + classId, "waitlist:" + classId),
                     classmateId.toString(),
                     wasConfirmed ? "1" : "0");
-            if (raw == null || raw.isEmpty()) {
+            // Lua 'return nil' arrives as null or as a list containing a single null element
+            if (raw == null || raw.isEmpty() || raw.get(0) == null) {
                 return null;
             }
             return (List<String>) raw;
