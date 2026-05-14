@@ -24,7 +24,8 @@ public class MockUserFilter extends OncePerRequestFilter {
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
-            "/actuator/**"
+            "/actuator/**",
+            "/api/ping"
     );
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

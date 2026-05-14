@@ -1,12 +1,4 @@
 {
   "issue": 47,
-  "tasks": [
-    {
-      "nn": "15",
-      "file": "plan/before/15_Logic_Implementer_Add_Ping_Endpoint.md",
-      "role": "Logic_Implementer",
-      "deps": [],
-      "cost_budget_tokens": 30000
-    }
-  ]
+  "tasks": []
 }
