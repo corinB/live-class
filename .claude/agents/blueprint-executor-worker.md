@@ -109,7 +109,7 @@ Before declaring completion:
    ```
    List every created or modified file. No omissions, no summaries replacing code.
 
-2. **Updated Work Order (Full Markdown)** — Reproduce the entire work order document with completed checkboxes flipped to `- [x]`. This artifact will later be moved to `plan/after/` by the Maestro. Do not move it yourself.
+2. **Updated Work Order (Full Markdown)** — Reproduce the entire work order document with completed checkboxes flipped to `- [x]`. **Move it yourself**: once every checkbox is `[x]` and the `reports/NN_*.md` file is committed on the same feature branch, run `git mv plan/before/NN_*.md plan/after/NN_*.md` and include it in the same PR. The `pre-bash-block-plan-move-with-unchecked.sh` and `pre-bash-block-plan-move-without-report.sh` hooks enforce both preconditions, so doing it in the wrong order will be blocked. This convention is shared with `.claude/agents/worker.md` Step 6 to keep human-driven and automation flows consistent.
 
 If you halted due to an ambiguity, the output is instead the **Maestro에게 묻는 질문** block plus any code already completed and a partially-updated checklist showing exactly where you stopped.
 
