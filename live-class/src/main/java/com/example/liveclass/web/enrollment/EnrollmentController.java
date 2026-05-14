@@ -1,4 +1,4 @@
-// 수강신청 REST 컨트롤러 — POST / (신청), GET /me (본인 수강 내역 조회)
+// 수강신청 REST 컨트롤러 — POST / (신청), POST /{id}/confirm-payment (결제), DELETE /{id} (취소), GET /me (내역)
 package com.example.liveclass.web.enrollment;
 
 import com.example.liveclass.application.enrollment.EnrollmentApplicationService;
@@ -12,7 +12,9 @@ import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,6 +47,20 @@ public class EnrollmentController {
         EnrollmentResponse response = enrollmentApplicationService.apply(classmateId, req.classId(), Instant.now());
         int httpStatus = response.status() == EnrollmentStatus.PENDING ? 201 : 202;
         return ResponseEntity.status(httpStatus).body(response);
+    }
+
+    @PostMapping("/{id}/confirm-payment")
+    public ResponseEntity<EnrollmentResponse> confirmPayment(@CurrentUserId UUID classmateId,
+                                                              @PathVariable UUID id) {
+        EnrollmentResponse response = enrollmentApplicationService.confirmPayment(id, classmateId, Instant.now());
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<EnrollmentResponse> cancel(@CurrentUserId UUID classmateId,
+                                                      @PathVariable UUID id) {
+        EnrollmentResponse response = enrollmentApplicationService.cancel(id, classmateId, Instant.now());
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/me")
