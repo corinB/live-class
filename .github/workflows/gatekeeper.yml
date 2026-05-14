@@ -1,5 +1,6 @@
 # Automation pipeline: auto-merges automation:worker PRs when CI + Gemini pass
 # NOTE: A third codex-review marker condition was considered and permanently dropped on 2026-05-15. Codex review continues to run only as the local stop-time gate inside the main Claude Code session.
+# NOTE: check_run / check_suite triggers were removed on 2026-05-15 because GITHUB_TOKEN-initiated check events do not start other workflows (GitHub Actions infinite-loop guard). workflow_run is the cross-workflow chaining mechanism that actually fires for in-repo PRs.
 name: Gatekeeper
 
 on:
@@ -7,9 +8,8 @@ on:
     types: [opened, synchronize, reopened, labeled]
   pull_request_review:
     types: [submitted]
-  check_suite:
-    types: [completed]
-  check_run:
+  workflow_run:
+    workflows: ["CI", "Gemini AI Code Review"]
     types: [completed]
 
 jobs:
@@ -44,21 +44,21 @@ jobs:
             pull_request|pull_request_review)
               PR_NUM="${{ github.event.pull_request.number }}"
               ;;
-            check_run)
-              HEAD_SHA="${{ github.event.check_run.head_sha }}"
-              PR_NUM=$(gh pr list \
-                --state open \
-                --json number,headRefOid,labels \
-                --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
-                | head -1)
+            workflow_run)
+              # Same-repo PR runs carry pull_requests[]; fork or label-only timing may leave it empty,
+              # so fall back to head_sha lookup against open automation:worker PRs.
+              PR_NUM=$(jq -r '.[0].number // empty' <<<'${{ toJson(github.event.workflow_run.pull_requests) }}')
+              if [ -z "$PR_NUM" ]; then
+                HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+                PR_NUM=$(gh pr list \
+                  --state open \
+                  --json number,headRefOid,labels \
+                  --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
+                  | head -1)
+              fi
               ;;
-            check_suite|*)
-              HEAD_SHA="${{ github.event.check_suite.head_sha }}"
-              PR_NUM=$(gh pr list \
-                --state open \
-                --json number,headRefOid,labels \
-                --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and ([.labels[].name] | contains([\"automation:worker\"]))) | .number" \
-                | head -1)
+            *)
+              PR_NUM=""
               ;;
           esac
 
@@ -75,7 +75,7 @@ jobs:
             echo "has_label=$HAS_LABEL" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check condition 1 — Build & Test green
+      - name: Check condition 1 — Build & Test
         id: ci
         if: steps.target.outputs.skip == 'false' && steps.target.outputs.has_label == 'true'
         env:
@@ -84,24 +84,25 @@ jobs:
           PR_NUM="${{ steps.target.outputs.pr_number }}"
           HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid --jq '.headRefOid')
 
-          STATUS=$(gh api \
-            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
-            --jq '.check_suites[]
-              | select(.app.slug == "github-actions")
-              | .conclusion' \
-            | grep -c "^success$" || echo "0")
+          # Look up the "Build & Test" check-run by name (latest occurrence wins after reruns)
+          CI_RUN=$(gh api \
+            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Build & Test")] | last')
 
-          TOTAL=$(gh api \
-            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-suites" \
-            --jq '.check_suites[]
-              | select(.app.slug == "github-actions")
-              | .conclusion' \
-            | wc -l | tr -d ' ')
-
-          if [ "$STATUS" -gt "0" ] && [ "$STATUS" = "$TOTAL" ]; then
-            echo "ci_green=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$CI_RUN" ] || [ "$CI_RUN" = "null" ]; then
+            echo "ci_state=pending" >> "$GITHUB_OUTPUT"
+            echo "Build & Test check-run not yet present."
           else
-            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            STATUS=$(echo "$CI_RUN" | jq -r '.status')
+            CONCLUSION=$(echo "$CI_RUN" | jq -r '.conclusion // ""')
+            echo "Build & Test status=$STATUS conclusion=$CONCLUSION"
+            if [ "$STATUS" != "completed" ]; then
+              echo "ci_state=pending" >> "$GITHUB_OUTPUT"
+            elif [ "$CONCLUSION" = "success" ] || [ "$CONCLUSION" = "skipped" ]; then
+              echo "ci_state=passed" >> "$GITHUB_OUTPUT"
+            else
+              echo "ci_state=failed" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Check condition 2 — Gemini P0=0 and P1=0
@@ -111,33 +112,76 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ steps.target.outputs.pr_number }}"
+          HEAD_SHA=$(gh pr view "$PR_NUM" --json headRefOid --jq '.headRefOid')
 
-          # Find the latest Gemini review comment (body contains "P0" and "P1")
-          GEMINI_COMMENT=$(gh pr view "$PR_NUM" --json comments \
-            --jq '[.comments[] | select(.body | test("P0|gemini"; "i"))] | last | .body' \
-            2>/dev/null || echo "")
+          GEMINI_RUN=$(gh api \
+            "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "gemini-review")] | last')
 
-          if [ -z "$GEMINI_COMMENT" ]; then
-            echo "gemini_pass=false" >> "$GITHUB_OUTPUT"
-            echo "No Gemini review comment found."
+          if [ -z "$GEMINI_RUN" ] || [ "$GEMINI_RUN" = "null" ]; then
+            echo "gemini_state=pending" >> "$GITHUB_OUTPUT"
+            echo "gemini-review check-run not yet present."
           else
-            # Look for P0 == 0 and P1 == 0 patterns (e.g., "P0: 0" or "P0=0")
-            P0=$(echo "$GEMINI_COMMENT" | grep -oP 'P0[=:]\s*\K\d+' | head -1 || echo "1")
-            P1=$(echo "$GEMINI_COMMENT" | grep -oP 'P1[=:]\s*\K\d+' | head -1 || echo "1")
-            if [ "$P0" = "0" ] && [ "$P1" = "0" ]; then
-              echo "gemini_pass=true" >> "$GITHUB_OUTPUT"
+            STATUS=$(echo "$GEMINI_RUN" | jq -r '.status')
+            CONCLUSION=$(echo "$GEMINI_RUN" | jq -r '.conclusion // ""')
+            echo "gemini-review status=$STATUS conclusion=$CONCLUSION"
+            if [ "$STATUS" != "completed" ]; then
+              echo "gemini_state=pending" >> "$GITHUB_OUTPUT"
+            elif [ "$CONCLUSION" = "success" ] || [ "$CONCLUSION" = "skipped" ]; then
+              # Gemini job exited 0 — now parse its comment for P0=0, P1=0
+              GEMINI_COMMENT=$(gh pr view "$PR_NUM" --json comments \
+                --jq '[.comments[] | select(.body | test("P0|gemini"; "i"))] | last | .body' \
+                2>/dev/null || echo "")
+              if [ -z "$GEMINI_COMMENT" ]; then
+                # Workflow completed but no comment yet (Gemini posts the comment after the check completes)
+                echo "gemini_state=pending" >> "$GITHUB_OUTPUT"
+                echo "Gemini check completed but no review comment yet."
+              else
+                P0=$(echo "$GEMINI_COMMENT" | grep -oP 'P0[=:]\s*\K\d+' | head -1 || echo "1")
+                P1=$(echo "$GEMINI_COMMENT" | grep -oP 'P1[=:]\s*\K\d+' | head -1 || echo "1")
+                if [ "$P0" = "0" ] && [ "$P1" = "0" ]; then
+                  echo "gemini_state=passed" >> "$GITHUB_OUTPUT"
+                else
+                  echo "gemini_state=failed" >> "$GITHUB_OUTPUT"
+                  echo "Gemini reported P0=$P0, P1=$P1"
+                fi
+              fi
             else
-              echo "gemini_pass=false" >> "$GITHUB_OUTPUT"
-              echo "Gemini reported P0=$P0, P1=$P1"
+              echo "gemini_state=failed" >> "$GITHUB_OUTPUT"
             fi
           fi
+
+      - name: Wait if any check is still pending
+        if: |
+          steps.target.outputs.skip == 'false' &&
+          steps.target.outputs.has_label == 'true' &&
+          (
+            steps.ci.outputs.ci_state == 'pending' ||
+            steps.gemini.outputs.gemini_state == 'pending'
+          )
+        run: |
+          echo "At least one gate is still pending. Waiting for the next workflow_run event."
+          echo "ci_state=${{ steps.ci.outputs.ci_state }}"
+          echo "gemini_state=${{ steps.gemini.outputs.gemini_state }}"
+
+      - name: Clear stale needs-human label on full pass
+        if: |
+          steps.target.outputs.skip == 'false' &&
+          steps.target.outputs.has_label == 'true' &&
+          steps.ci.outputs.ci_state == 'passed' &&
+          steps.gemini.outputs.gemini_state == 'passed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUM="${{ steps.target.outputs.pr_number }}"
+          gh pr edit "$PR_NUM" --remove-label "needs-human" 2>/dev/null || true
 
       - name: Auto-merge if all conditions pass
         if: |
           steps.target.outputs.skip == 'false' &&
           steps.target.outputs.has_label == 'true' &&
-          steps.ci.outputs.ci_green == 'true' &&
-          steps.gemini.outputs.gemini_pass == 'true'
+          steps.ci.outputs.ci_state == 'passed' &&
+          steps.gemini.outputs.gemini_state == 'passed'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -146,20 +190,20 @@ jobs:
           gh pr merge "$PR_NUM" --squash --auto \
             --subject "$(gh pr view $PR_NUM --json title --jq '.title')"
 
-      - name: Label needs-human if any condition fails
+      - name: Label needs-human if any condition failed
         if: |
           steps.target.outputs.skip == 'false' &&
           steps.target.outputs.has_label == 'true' &&
           (
-            steps.ci.outputs.ci_green != 'true' ||
-            steps.gemini.outputs.gemini_pass != 'true'
+            steps.ci.outputs.ci_state == 'failed' ||
+            steps.gemini.outputs.gemini_state == 'failed'
           )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ steps.target.outputs.pr_number }}"
-          CI="${{ steps.ci.outputs.ci_green }}"
-          GEMINI="${{ steps.gemini.outputs.gemini_pass }}"
+          CI="${{ steps.ci.outputs.ci_state }}"
+          GEMINI="${{ steps.gemini.outputs.gemini_state }}"
 
           gh pr edit "$PR_NUM" --add-label "needs-human" || true
 
