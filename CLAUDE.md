@@ -1,90 +1,136 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) when working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Companion docs.
-> - `ORCHESTRATION.md` — multi-agent pipeline policy (stages, deliverables, blocking rules).
-> - `AGENTS-SKILLS-HARNESS.md` — 1-page hub (detailed catalogs in `docs/agents/*.md` and `docs/harness/*.md`).
-> - `DOCS.md` — DDD domain design (bounded contexts, aggregates, state transitions, domain events, invariants).
-> - `ARCHITECTURE.md` — concurrency, caching, scheduling (strategy comparison, rationale for Redis ZSET + Lua atomic script).
-> - `CONTRIBUTING.md` — branch, commit, PR conventions.
-> - `context.yaml` — structured index of the docs above for fast LLM scanning.
+> 보조 문서.
+> - `ORCHESTRATION.md` — multi-agent 파이프라인 정책 (단계·산출물·차단 규칙).
+> - `AGENTS-SKILLS-HARNESS.md` — 1페이지 허브 (세부 카탈로그는 `docs/agents/*.md`·`docs/harness/*.md`).
+> - `DOCS.md` — DDD 도메인 설계 (바운디드 컨텍스트·애그리거트·상태 전이·도메인 이벤트·불변식).
+> - `ARCHITECTURE.md` — 동시성·캐싱·스케줄링 설계 (전략 비교, Redis ZSET + Lua atomic script 채택 사유).
+> - `CONTRIBUTING.md` — 브랜치·커밋·PR 규약.
+> - `context.yaml` — 위 문서들을 LLM이 인덱스 형태로 빠르게 스캔하기 위한 구조화된 컨텍스트.
 
 ---
 
 ## What this workspace is
 
-An **orchestrator workspace** for the live-class enrollment system. The main Claude Code session does not write to `src/` directly; it dispatches to 6 sub-agents in `.claude/agents/`. Application code lives under `live-class/` (Spring Boot 4.0.6, Java 21, Gradle Groovy DSL, modular monolith). `front/` is an nginx static placeholder for Swagger UI (compose `front` profile).
+라이브 강의 수강신청(live-class) 시스템을 개발하는 **orchestrator workspace**다. 메인 Claude Code 세션은 직접 `src/`에 코드를 쓰지 않고 6개 sub-agent(`.claude/agents/`)를 디스패치한다. 실제 애플리케이션 코드는 `live-class/`에 있으며 Spring Boot 4.0.6 · Java 21 · Gradle Groovy DSL · 모듈러 모놀리스 구조다. `front/`는 Swagger UI 안내용 nginx 정적 placeholder다(compose `front` 프로파일).
 
 ---
 
 ## Build / test / run commands
 
-All commands run inside `live-class/`.
+모든 명령은 `live-class/` 디렉터리 안에서 실행한다.
 
-| Purpose | Command |
-|---------|---------|
-| Compile + bootJar | `./gradlew build` |
-| Full test suite | `./gradlew test` |
-| Single test | `./gradlew test --tests com.example.liveclass.domain.clazz.ClassTest` |
-| Local run | `./gradlew bootRun` (needs Postgres + Redis. Swagger UI at `http://localhost:8080/swagger-ui.html`) |
-| Infra stack | `docker compose --profile db --profile redis --profile back --profile front up -d` / `... down`. Export `COMPOSE_PROFILES=db,redis,back,front` to skip flags. |
+| 목적 | 명령 |
+|------|------|
+| 컴파일 + bootJar | `./gradlew build` |
+| 전체 테스트 | `./gradlew test` |
+| 단일 테스트 | `./gradlew test --tests com.example.liveclass.domain.clazz.ClassTest` |
+| 로컬 실행 | `./gradlew bootRun` (Postgres + Redis 필요. Swagger UI: `http://localhost:8080/swagger-ui.html`) |
+| 인프라 스택 | `docker compose --profile db --profile redis --profile back --profile front up -d` / `... down` (루트 `docker-compose.yml`. `COMPOSE_PROFILES=db,redis,back,front`를 export해 두면 플래그 생략 가능) |
 
-**Docker stack prerequisites.** Root `.env` must define `POSTGRES_USER/PASSWORD/DB/URL` and `REDIS_HOST/PORT/PASSWORD`.
+**Docker stack 실행 전제.** 루트 `.env`에 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_URL` / `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`가 채워져 있어야 한다. 누락 시 컨테이너가 뜨더라도 빈 자격증명으로 인증 실패가 발생한다.
 
-**Test prerequisites.** `./gradlew test` uses JUnit 5 + Testcontainers. Classes meta-annotated `@IntegrationTest` need a running Docker daemon. Pure domain tests run without Docker. See `live-class/src/test/java/.../support/IntegrationTest.java`.
+**테스트 실행 전제.** `./gradlew test`는 JUnit 5 + Testcontainers 기반이다.
+- 통합 테스트(`@IntegrationTest` 메타 어노테이션을 단 클래스)가 PostgreSQL/Redis 컨테이너를 띄우므로 **로컬 Docker 데몬이 떠 있어야 통과한다**.
+- 도메인 단위 테스트는 외부 의존이 없어 Docker 없이도 동작한다.
+- 일부 테스트는 H2 + 로컬 Redis fallback 프로파일(`src/test/resources/application.yaml`)을 사용한다.
 
 ---
 
 ## Architecture big picture
 
-Three bounded contexts collaborate inside a single JVM via in-process calls + Spring `ApplicationEvent`. Direct aggregate-to-aggregate references are forbidden; use **ID references** only (`ClassId`, `EnrollmentId`, `UserId`). Full design in `DOCS.md`.
+### 바운디드 컨텍스트 (모듈러 모놀리스)
 
-| Context | Aggregate Root | Responsibility |
-|---------|---------------|----------------|
-| Class | `domain/clazz/Class` | Class metadata, capacity, one-way state transition `DRAFT → OPEN → CLOSED` |
-| Enrollment | `domain/enrollment/Enrollment` | Apply, confirm, cancel, waitlist (`status = WAITLISTED` instead of a separate aggregate) |
-| User | `domain/user/User` | Roles (`CREATOR` / `CLASSMATE`). Auth is mocked via `X-User-Id` header |
+세 컨텍스트가 **단일 JVM 안에서 in-process 호출 + Spring `ApplicationEvent`**로 협력한다. Aggregate 간 직접 객체 참조는 금지하고 **ID 참조**(`ClassId`, `EnrollmentId`, `UserId`)만 사용한다.
 
-Package layout: `com.example.liveclass.{domain, application, infrastructure, web, config}`. Domain modules: `clazz / enrollment / user / shared`.
+| Context | Aggregate Root | 책임 |
+|---------|---------------|------|
+| Class | `domain/clazz/Class` | 강의 메타·정원·`DRAFT → OPEN → CLOSED` 일방향 상태 전이 |
+| Enrollment | `domain/enrollment/Enrollment` | 신청·확정·취소·대기열. 대기열은 별도 Aggregate가 아니라 `status = WAITLISTED`로 표현 |
+| User | `domain/user/User` | 역할(`CREATOR` / `CLASSMATE`) 식별. 인증은 mock(`X-User-Id` 헤더) |
 
-**Concurrency decisions** (full text in `ARCHITECTURE.md §4`).
+### 패키지 레이아웃 (`com.example.liveclass`)
 
-- PostgreSQL is the source of truth. Race-critical decisions (remaining capacity, waitlist promotion) gate first through **Redis ZSET + Lua atomic script** under `src/main/resources/lua/`.
-- Redis down = fail-closed (HTTP 503). Consistency over availability.
-- Class state transitions use `@Version` JPA optimistic lock.
-- Auto-close runs on Quartz in-memory JobStore, daily 00:05 KST.
+```
+domain/{clazz, enrollment, user, shared}    Entity · VO · 도메인 예외 · 도메인 이벤트
+application/{clazz, enrollment, user}       orchestration · mock payment · read query
+infrastructure/scheduling                   Quartz ClassAutoCloseJob, QuartzConfig
+infrastructure/PartialIndexInitializer      DB partial unique index 부팅 시 보장
+web/{clazz, enrollment, user}               REST controller + DTO
+web/auth                                    MockUserFilter, CurrentUserId, ArgumentResolver
+web/error                                   GlobalExceptionHandler
+config/                                     OpenApiConfig, WebMvcConfig, LuaScriptConfig
+```
+
+### 핵심 동시성 결정 (ARCHITECTURE.md §4)
+
+- **Source of truth는 PostgreSQL**, 그러나 race-critical 결정(잔여 정원 분기, 대기열 승격)은 **Redis ZSET (`enrolled:{classId}` / `waitlist:{classId}`) + Lua atomic script**가 1차 게이트다.
+- Lua 스크립트는 `src/main/resources/lua/` — `enrollment_apply.lua`, `enrollment_cancel_promote.lua`, `enrollment_compensate.lua`. Redis 단일 스레드 직렬화로 read-modify-write 경합 윈도우가 0이다.
+- DB 쓰기는 같은 application 트랜잭션 안에서 Lua 결정 직후 수행. Lua 성공 후 DB 실패 시 보상 Lua로 ZSET 갱신을 되돌린다.
+- **Redis 다운 = fail-closed (503)**. 정합성 우선 정책.
+- Class 상태 전이 동시성(수동 close ↔ Quartz auto-close 충돌)은 `@Version` JPA optimistic lock으로 해소.
+- 시간 기반 자동 close는 Quartz **in-memory** JobStore — `infrastructure/scheduling/ClassAutoCloseJob`, 매일 00:05 KST. 멀티 인스턴스 확장 시 JDBC JobStore 전환.
+
+### 테스트 전략
+
+- 도메인 단위: `ClassTest`, `EnrollmentTest`, `MoneyTest`, `CapacityTest`, `ClassPeriodTest`, `CancellationWindowTest` 등 — 외부 의존 없음.
+- 통합: `@IntegrationTest` 메타 어노테이션(`support/IntegrationTest.java` = `@SpringBootTest + @ActiveProfiles("test") + @Testcontainers`) + `PostgresTestContainer` / `RedisContainerExtension`.
+- 동시성 회귀: `ClassRepositoryConcurrencyTest`, `ClassOptimisticLockTest`, `AutoCloseManualCloseRaceTest`, `MisfireRecoveryTest`, `EnrollmentRepositoryIntegrationTest`.
 
 ---
 
 ## Multi-agent pipeline & harness
 
-- Pipeline: 6 stages, 6 sub-agents — `ddd-domain-architect` → `concurrency-architect` → `scrum-task-decomposer` → (`infra-cicd-operator` ∥ `git-master-conventions`) → `blueprint-executor-worker` × N. Details in `ORCHESTRATION.md`.
-- Six slash skills (`/design-domain`, `/design-concurrency`, `/decompose-tasks`, `/setup-infra`, `/setup-git-rules`, `/exec-blueprint`) wrap one agent each. Catalog: `docs/agents/skills.md`.
-- `SessionStart` / `UserPromptSubmit` hooks prepend `[pipeline] DOCS:✓/✗ · ARCH:✓/✗ · before:N · after:M` to every message.
-- Harness safety net (`.claude/settings.json` + `.claude/hooks/*.sh`) blocks destructive bash, reads of `.env`/`*.key`/`credentials*`, plan-move violations, and surrogate-split bloat (Read/Bash size caps + Read surrogate detect; see memory `surrogate-split-avoidance`). Catalog: `docs/harness/`.
+### 파이프라인
+
+6개 sub-agent를 다음 순서로 실행한다(상세는 `ORCHESTRATION.md`).
+
+1. `ddd-domain-architect` → `DOCS.md`
+2. `concurrency-architect` → `ARCHITECTURE.md`
+3. `scrum-task-decomposer` → `plan/before/NN_<role>_<slug>.md`
+4. (parallel) `infra-cicd-operator` + `git-master-conventions`
+5. `blueprint-executor-worker` × N — 한 태스크 파일을 워크트리 격리로 코드화. **유일하게 `src/`에 쓰는 에이전트이며 `isolation: "worktree"`가 강제된다.** 메인 세션이 직접 `src/`에 쓰는 것을 지양한다.
+
+### 슬래시 스킬
+
+`/design-domain` · `/design-concurrency` · `/decompose-tasks` · `/setup-infra` · `/setup-git-rules` · `/exec-blueprint` — 각 스킬이 정확히 하나의 에이전트를 래핑한다(`docs/agents/skills.md`).
+
+### 파이프라인 상태 배지
+
+`SessionStart` / `UserPromptSubmit` 훅이 매 메시지 앞에 `[pipeline] DOCS:✓/✗ · ARCH:✓/✗ · before:N · after:M`을 자동 주입한다. `plan/before/`는 미완료 태스크, `plan/after/`는 워커 완료 태스크다. `reports/`에 워커별 종료 보고서가 쌓인다.
+
+### 하네스 안전망 (`.claude/settings.json` + `.claude/hooks/*.sh`)
+
+- 자동 차단(pre-bash 훅): `rm -rf`, `git push --force`, `git reset --hard`, 보고서 누락 상태의 `plan/before → plan/after` 이동, 체크박스 미완료 상태의 이동.
+- 자동 차단(permissions deny): `.env`, `.env.*`, `*.key`, `*.pem`, `credentials*`, `secrets*` 읽기.
+- 자동 허용: 읽기·빌드 위주 명령(`ls`, `git status/diff/log`, `cat`, `./gradlew test/build/bootRun/clean`, `docker compose up/down/ps/logs`).
+- post-write: `.md` 변경 시 `markdownlint-cli` 실행(없으면 no-op), 빈 충돌 가능성 경고.
+- `Stop`: `DOCS.md`/`ARCHITECTURE.md` 변경이 있었으면 종료 전 경고, 미해결 후속 작업 경고.
 
 ---
 
-## Workflow rules
+## Workflow rules (CONTRIBUTING.md 핵심)
 
-Full text in `CONTRIBUTING.md`. Two essentials:
-
-- **Branch naming.** `<type>/task-NN-<slug>`. `NN` must match the two-digit prefix of a file in `plan/before/NN_*.md`. `type` ∈ `feature / fix / refactor / perf / test / docs / chore / ci`. Harness or ops-only changes use `chore(harness): ...`.
-- **Conventional Commits.** Subject ≤50 chars, English imperative; footer must include `Refs: plan/before/NN_<Role>_<Slug>.md` for PR-to-task traceability.
+- **GitHub Flow + Squash Merge.** `main` 직접 push 금지.
+- **브랜치 네이밍.** `<type>/task-NN-<slug>` — `type` ∈ `feature` / `fix` / `refactor` / `perf` / `test` / `docs` / `chore` / `ci`. `NN`은 `plan/before/NN_*.md`의 두 자리와 정확히 일치.
+- **한 브랜치 = 한 태스크 = 한 PR.** 두 태스크를 한 브랜치에 묶지 않는다.
+- **Conventional Commits.** subject는 50자 이내 영어 명령형, 마침표 금지. 푸터에 `Refs: plan/before/NN_<Role>_<Slug>.md`를 **반드시** 명시한다(PR-태스크 추적성).
+- **PR 머지 조건.** `.github/pull_request_template.md` 체크리스트 충족 + Gemini AI 자동 리뷰 P0/P1 대응 완료.
 
 ---
 
 ## Language convention
 
-- User-facing replies in this session = **Korean**.
-- Commit messages, planning docs, code comments, design docs (DOCS/ARCHITECTURE), this CLAUDE.md = **English** (internal technical artifacts).
-- **PR title = English (Conventional Commits)**, **PR body = Korean**. Identifiers (code, commands, filenames, hook names) stay verbatim inside Korean prose.
-- **`reports/*.md` = Korean** (operator-facing reports).
-- New source files start with a one-line Korean header comment (per parent `~/CLAUDE.md` rule 6).
+- 사용자 응답·대화 = **한국어**.
+- 커밋 메시지 · planning docs · 코드 주석 · 설계 문서(DOCS/ARCHITECTURE) = **영어**.
+- **PR 제목 = 영어 (Conventional Commits)**, **PR 본문(summary·테스트 절차 등 body 전체) = 한국어**. Squash Merge 시 PR 제목이 그대로 squash 커밋 subject가 되므로 제목은 커밋 메시지 규약(50자 이내 영어 명령형, `<type>(scope): ...`)을 따른다. 본문은 사람이 읽는 텍스트라 한국어. 코드/명령/파일명/hook 이름 등 식별자는 한국어 본문 안에서도 원문 유지.
+- **`reports/*.md` (워커 end-of-run 보고서) = 한국어.** 사람이 읽는 운영 보고서이며 PR 본문과 동일 정책. 코드/명령/파일명/식별자는 원문 유지.
+- 새 소스 파일 첫 줄에는 한 줄짜리 한국어 헤더 주석을 넣는다(부모 `~/CLAUDE.md` 규칙 6).
 
 ---
 
 ## Behavioral rules
 
-Ten behavioral rules (Think Before Coding · Simplicity First · Surgical Changes · Goal-Driven Execution · No Closing Colons · File Header Comments in Korean · Plan + Checklist + Context Notes · Run Tests Before Marking Complete · Semantic Commits · Read Errors Don't Guess) are defined in the user's global `~/CLAUDE.md`. Do not duplicate them here. Project rules win on conflict.
+10개 행동 규칙(Think Before Coding · Simplicity First · Surgical Changes · Goal-Driven Execution · No Closing Colons · File Header Comments in Korean · Plan + Checklist + Context Notes · Run Tests Before Marking Complete · Semantic Commits · Read Errors Don't Guess)은 사용자 글로벌 `~/CLAUDE.md`에 정의되어 있다. 프로젝트 파일에서 중복 기재하지 않는다. 프로젝트 규약과 충돌 시 프로젝트 규약이 우선한다.
