@@ -1,10 +1,12 @@
 <!-- 에이전트·스킬·하네스 세 기둥의 1페이지 허브. 세부는 docs/agents, docs/harness 시리즈로 분리 -->
 # AGENTS · SKILLS · HARNESS
 
-이 워크스페이스는 라이브 강의 수강신청 시스템(`live-class/`)을 **6개의 서브에이전트가 순차/병렬로 만들어내는** 멀티 에이전트 파이프라인이다. 메인 Claude Code 세션은 `src/`에 직접 코드를 쓰지 않고, 세 기둥을 통해 작업을 시킨다.
+이 워크스페이스는 라이브 강의 수강신청 시스템(`live-class/`)을 **8개의 서브에이전트가 순차/병렬로 만들어내는** 멀티 에이전트 파이프라인이다. 메인 Claude Code 세션은 `src/`에 직접 코드를 쓰지 않고, 세 기둥을 통해 작업을 시킨다.
 
-- **에이전트 (`.claude/agents/`)** — 각자 단일 산출물만 만드는 6개 서브에이전트 + 외부 위임용 Codex.
-- **스킬 (`.claude/skills/`)** — 사용자가 `/`로 호출하는 단축 명령. 각 스킬이 정확히 1개 에이전트를 래핑.
+- **에이전트 (`.claude/agents/`)** — 8개 서브에이전트(human-driven 6개 + automation 2개) + 외부 위임용 Codex.
+  - Human-driven 6개: `ddd-domain-architect`, `concurrency-architect`, `scrum-task-decomposer`, `infra-cicd-operator`, `git-master-conventions`, `blueprint-executor-worker`.
+  - Automation 2개: `maestro` (Issue → plan/before), `worker` (한 task → 한 PR). GitHub Issue label `maestro:auto`에서 시작되는 별도 파이프라인. 상세는 `docs/architecture/automation-pipeline.md`.
+- **스킬 (`.claude/skills/`)** — 사용자가 `/`로 호출하는 단축 명령. 각 스킬이 정확히 1개 human-driven 에이전트를 래핑. 자동화 파이프라인은 슬래시 스킬 없이 main session이 Agent tool로 직접 maestro/worker 를 호출.
 - **하네스 (`.claude/settings.json` + `.claude/hooks/*.sh`)** — 퍼미션·훅으로 안전망과 자동화를 거는 레일.
 
 본 문서는 세 기둥의 인덱스다. 세부 카탈로그·구조·이식 가이드는 아래 다섯 세분 문서로 분리되어 있다.
@@ -37,6 +39,8 @@ graph TD
 ## 다음 단계 안내
 
 새 도메인 설계를 시작하려면 `/design-domain "<도메인 한 줄 요약>"`을 호출한다. 이후 파이프라인 안내대로 `/design-concurrency` → `/decompose-tasks` → `/setup-infra` · `/setup-git-rules` 병렬 → 태스크별 `/exec-blueprint` 순으로 진행한다. 각 스킬은 전제 파일을 사전 검증하고 다음 단계를 자동으로 알려 준다.
+
+**자동화 파이프라인**으로 작업하려면 GitHub 에 `maestro:auto` 라벨이 붙은 Issue 를 한 개 만들고, 메인 Claude Code 세션에 `Issue #<n> 처리해` 라고 지시한다. Maestro 가 분해하고 Worker 들이 PR 을 연다. 셋업·HITL·troubleshooting 은 `docs/guides/automation-*.md` 참고.
 
 ## 관련 메타 문서
 
