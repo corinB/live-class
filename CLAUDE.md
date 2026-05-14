@@ -59,8 +59,9 @@ Package layout: `com.example.liveclass.{domain, application, infrastructure, web
 
 ## Multi-agent pipeline & harness
 
-- Pipeline: 6 stages, 6 sub-agents — `ddd-domain-architect` → `concurrency-architect` → `scrum-task-decomposer` → (`infra-cicd-operator` ∥ `git-master-conventions`) → `blueprint-executor-worker` × N. Details in `ORCHESTRATION.md`.
-- Six slash skills (`/design-domain`, `/design-concurrency`, `/decompose-tasks`, `/setup-infra`, `/setup-git-rules`, `/exec-blueprint`) wrap one agent each. Catalog: `docs/agents/skills.md`.
+- **Human-driven pipeline**: 6 stages, 6 sub-agents — `ddd-domain-architect` → `concurrency-architect` → `scrum-task-decomposer` → (`infra-cicd-operator` ∥ `git-master-conventions`) → `blueprint-executor-worker` × N. Details in `ORCHESTRATION.md`.
+- **Automation pipeline** (local-driven): 2 additional sub-agents — `maestro` and `worker` (`.claude/agents/`). User opens a GitHub Issue with label `maestro:auto`; the main session runs Maestro → Worker on demand. GitHub Actions handles only notification (`maestro-dispatch.yml`), auto-rebase (`auto-rebase.yml`), and gatekeeping (`gatekeeper.yml`). Kill switch: Repository variable `AUTOMATION_ENABLED`. Details in `docs/architecture/automation-pipeline.md` and `docs/guides/automation-*.md`.
+- Eight slash skills wrap human-driven agents (`/design-domain`, `/design-concurrency`, `/decompose-tasks`, `/setup-infra`, `/setup-git-rules`, `/exec-blueprint`). The automation pipeline does not use slash skills — the main session invokes Maestro/Worker via the Agent tool directly. Catalog: `docs/agents/skills.md`.
 - `SessionStart` / `UserPromptSubmit` hooks prepend `[pipeline] DOCS:✓/✗ · ARCH:✓/✗ · before:N · after:M` to every message.
 - Harness safety net (`.claude/settings.json` + `.claude/hooks/*.sh`) blocks destructive bash, reads of `.env`/`*.key`/`credentials*`, plan-move violations, and surrogate-split bloat (Read/Bash size caps + Read surrogate detect; see memory `surrogate-split-avoidance`). Catalog: `docs/harness/`.
 

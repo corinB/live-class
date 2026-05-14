@@ -233,6 +233,22 @@ CI(검증)와 CD(배포)를 두 파일로 분리한다. 한 워크플로우에 �
 
 이 설정은 IaC로 관리하지 않는다. 워크플로우 잡 이름을 바꾸면 branch protection의 status check 항목도 함께 갱신해야 한다(`docs/harness/03-migration.md`의 환경 가정 표 참조).
 
+### 4.3 자동화 파이프라인 PR
+
+`maestro:auto` 라벨이 붙은 Issue 가 만들어지면 `maestro-dispatch.yml` 이 Issue 에 알림 코멘트를 달고 `needs-maestro` 라벨을 붙인다. 사용자가 메인 Claude Code 세션에 `Issue #<n> 처리해` 라고 지시하면 Maestro 가 `plan/before/NN_*.md` 를 만들고 Worker 들이 각각 PR 을 연다.
+
+자동 생성 PR 의 규약:
+
+- 브랜치: 일반 task PR 과 동일한 `feature/task-NN-<slug>` 규칙. Maestro 가 push 한 분해 커밋은 `chore/maestro-<issue-number>` 브랜치(merge 대상 아님, plan/before 동기화용).
+- 라벨: `automation:worker` 가 PR open 시 자동 부여.
+- 커밋 메시지: 일반 Conventional Commits 규약 + 푸터에 `Refs: plan/before/NN_*.md` + `Refs: #<issue-number>`.
+- 머지: `gatekeeper.yml` 이 두 조건(CI green + Gemini P0/P1=0) 충족 시 자동 squash merge. 실패하면 `needs-human` 라벨 + PR/Issue 코멘트.
+- main 이 앞서가면 `auto-rebase.yml` 이 자동 rebase. 충돌 시 `needs-human` 라벨 + `@claude rebase` 코멘트.
+- HITL: PR review comment 또는 issue_comment 에 의견을 남기되, 자동 트리거는 없으므로 사용자가 메인 세션에 직접 "PR #X 코멘트 반영해" 라고 말해 Worker 를 재호출한다. 상세는 `docs/guides/automation-hitl.md`.
+- Kill switch: Repository variable `AUTOMATION_ENABLED=false` 로 자동화 3개 workflow 전체 비활성화.
+
+상세 설계·운영 가이드는 `docs/architecture/automation-pipeline.md` 와 `docs/guides/automation-*.md` 참고.
+
 ---
 
 ## 5. 절대 금지 사항

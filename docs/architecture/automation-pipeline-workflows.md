@@ -1,172 +1,101 @@
 # Automation Pipeline — Workflow Composition Reference
 
-> How the 5 GitHub Actions workflows compose into the Maestro + Worker end-to-end pipeline.
+> How the 3 GitHub Actions workflows compose with the **main local Claude Code session** in the realigned (local-driven) pipeline.
 > Read `docs/architecture/automation-pipeline.md` for the state machine and policy decisions.
-> This document focuses on **how to operate and extend** the workflows.
-
----
 
 ## End-to-end flow
 
 ```
 User opens GitHub Issue
-  └─ applies label: maestro:auto
+  └─ applies label: maestro:auto (via Issue template)
        │
        ▼
-maestro-dispatch.yml                      [trigger: issues.opened / labeled]
+maestro-dispatch.yml                       [trigger: issues.opened / labeled]
   ├─ kill-switch check (AUTOMATION_ENABLED)
-  ├─ Claude Code SDK → maestro.md subagent
-  │     reads: DOCS.md, ARCHITECTURE.md, automation-pipeline.md
-  │     emits: plan/before/NN_*.md  +  plan/before/manifest.json
-  ├─ commit + push → chore/maestro-<issue-number>
-  └─ repository_dispatch: worker-task  (payload: manifest JSON)
+  ├─ add label: needs-maestro
+  └─ post Issue comment instructing the user to invoke the main session
+       │
+       │  (user moves to local Claude Code)
+       │  > "Issue #<n> 처리해"
        │
        ▼
-worker-dispatch.yml                       [trigger: repository_dispatch worker-task]
+Main Claude Code session
+  ├─ invokes maestro agent (.claude/agents/maestro.md)
+  │    reads: DOCS.md, ARCHITECTURE.md, automation-pipeline.md
+  │    emits: plan/before/NN_*.md + plan/before/manifest.json
+  │    commits to chore/maestro-<issue-number> and pushes
+  ├─ invokes worker agents in parallel (.claude/agents/worker.md)
+  │    each in its own worktree, reads one task file
+  │    writes code, runs ./gradlew test locally, opens PR
+  │    PR label: automation:worker
+  └─ user is informed PR is open
+       │
+       ▼
+PR-side automation (no LLM)
+  ├─ ci.yml — Build & Test
+  ├─ gemini-review.yml — posts P0/P1 comment
+  │
+  ▼
+gatekeeper.yml                              [trigger: pull_request_review or check_suite]
   ├─ kill-switch check
-  ├─ matrix: one job per task in manifest.tasks
-  └─ per worker job:
-       ├─ git worktree (isolated)
-       ├─ Claude Code SDK → worker.md subagent
-       │     reads: TASK_FILE, DOCS.md, ARCHITECTURE.md
-       │     writes: code inside worktree
-       │     runs: ./gradlew test
-       └─ gh pr create --label automation:worker
-            │
-            ├─ CI (ci.yml) — Build & Test
-            ├─ Gemini review (gemini-review.yml)
-            └─ Codex review (external; posts "codex-review: pass" comment)
-                 │
-                 ▼
-            gatekeeper.yml                [trigger: pull_request_review / check_suite]
-              ├─ kill-switch check
-              ├─ condition 1: Build & Test → success
-              ├─ condition 2: Gemini P0=0 AND P1=0
-              ├─ condition 3: comment contains "codex-review: pass"
-              ├─ ALL pass → gh pr merge --squash --auto
-              └─ ANY fail → label needs-human + ping Issue
-                   │
-                   ▼
-              Developer writes "@claude fix ..."
-                   │
-                   ▼
-            comment-handler.yml           [trigger: issue_comment / pull_request_review_comment]
-              ├─ guard: contains(@claude) AND author_association in [OWNER,MEMBER,COLLABORATOR]
-              ├─ PR comment → Worker retry (EXTRA_INSTRUCTION)
-              └─ Issue comment on maestro-managed issue → Maestro re-plan
+  ├─ verify CI green
+  ├─ verify Gemini comment has P0=0 AND P1=0
+  ├─ all green? → gh pr merge --squash --auto
+  └─ any failed? → add `needs-human` label, post PR + Issue comment
 
-            [independently, on push to main]
-auto-rebase.yml                           [trigger: push main]
+auto-rebase.yml                             [trigger: push to main]
   ├─ kill-switch check
   ├─ list open PRs labeled automation:worker
-  └─ gh pr update-branch --rebase each
-       ├─ success → continue
-       └─ conflict → label needs-human + post rebase instructions
+  ├─ for each: gh pr update-branch --rebase
+  └─ on conflict: post @claude rebase comment + add needs-human label
 ```
 
----
+## Workflow inventory (after realign)
 
-## Workflow summary table
+| File | Trigger | Purpose | Uses Claude API? |
+|------|---------|---------|------------------|
+| `maestro-dispatch.yml` | `issues.opened` / `labeled` | Notify the user via Issue comment + add `needs-maestro` label | No |
+| `gatekeeper.yml` | `pull_request_review`, `check_suite` | Verify CI + Gemini and auto-merge | No |
+| `auto-rebase.yml` | `push: main` | Rebase open `automation:worker` PRs | No |
 
-| Workflow file | Trigger | Key secret/var used | Output |
-|---|---|---|---|
-| `maestro-dispatch.yml` | `issues: [opened, labeled]` | `ANTHROPIC_API_KEY`, `AUTOMATION_ENABLED` | Plan files committed, `repository_dispatch` emitted |
-| `worker-dispatch.yml` | `repository_dispatch: worker-task` | `ANTHROPIC_API_KEY`, `AUTOMATION_ENABLED`, `GITHUB_TOKEN` | PRs opened, labeled `automation:worker` |
-| `comment-handler.yml` | `issue_comment`, `pull_request_review_comment` | `ANTHROPIC_API_KEY`, `AUTOMATION_ENABLED`, `GITHUB_TOKEN` | Worker retry or Maestro re-plan |
-| `auto-rebase.yml` | `push: branches: [main]` | `AUTOMATION_ENABLED`, `GITHUB_TOKEN` | PRs rebased or labeled `needs-human` |
-| `gatekeeper.yml` | `pull_request_review`, `check_suite` | `AUTOMATION_ENABLED`, `GITHUB_TOKEN` | PR auto-merged or labeled `needs-human` |
+Removed during realign (required `ANTHROPIC_API_KEY`):
 
----
+- `worker-dispatch.yml` — replaced by user-driven Worker invocation in the main session.
+- `comment-handler.yml` — replaced by the user reading `@claude ...` comments and instructing the main session.
 
-## Required GitHub configuration
+## Required secrets / variables / labels
 
-### Repository secrets (Settings → Secrets and variables → Actions → Secrets)
+### Repository secrets
+- `GITHUB_TOKEN` — ephemeral, automatic. No setup needed.
 
-| Secret name | Value | Used by |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude | `maestro-dispatch.yml`, `worker-dispatch.yml`, `comment-handler.yml` |
-| `DOCKERHUB_USERNAME` | Docker Hub username | Existing `cd.yml` (unchanged) |
-| `DOCKERHUB_TOKEN` | Docker Hub access token | Existing `cd.yml` (unchanged) |
-| `EC2_HOST` | EC2 public IP/hostname | Existing `cd.yml` (unchanged) |
-| `EC2_SSH_KEY` | SSH private key for EC2 | Existing `cd.yml` (unchanged) |
+(No `ANTHROPIC_API_KEY` required. The main local Claude Code session uses its own subscription.)
 
-### Repository variables (Settings → Secrets and variables → Actions → Variables)
+### Repository variables
+- `AUTOMATION_ENABLED` — `"true"` or `"false"`. Global kill switch.
 
-| Variable name | Type | Default | Purpose |
-|---|---|---|---|
-| `AUTOMATION_ENABLED` | string | `"false"` | Global kill switch. Set to `"true"` to activate the pipeline. Every automation workflow checks this as its first step. |
+### Labels
+- `maestro:auto` (auto-applied by the Issue template).
+- `automation:worker` (applied by Worker agent on PR open).
+- `needs-maestro` (applied by maestro-dispatch notifier).
+- `needs-human` (applied by Gatekeeper on failure, or auto-rebase on conflict).
 
-> Set `AUTOMATION_ENABLED` to `"false"` in the GitHub UI to immediately disable all automation for new events. In-flight runs are not cancelled.
+## How to extend
 
-### Labels (must exist before first use)
+To add a new gatekeeper condition (e.g. a Codex marker once a producer ships), edit `.github/workflows/gatekeeper.yml`:
+1. Add a `Check condition N — ...` step that sets `${{ steps.STEP.outputs.PASS }}`.
+2. Add the new condition to both the "Auto-merge if all conditions pass" step's `if:` and the "Label needs-human" step's `if:`.
+3. Add the new condition to the `needs-human` Issue comment.
 
-Create these labels at `github.com/<owner>/live-class/labels`:
+To re-enable LLM-driven dispatch (once `CLAUDE_CODE_OAUTH_TOKEN` or similar is available):
+1. Restore the deleted `worker-dispatch.yml` and `comment-handler.yml` from git history.
+2. Replace `ANTHROPIC_API_KEY` references with the new credential.
+3. Update `automation-pipeline.md` and this document.
 
-| Label | Color (suggestion) | Used by |
-|---|---|---|
-| `maestro:auto` | `#0075ca` | Issue template auto-applies; triggers `maestro-dispatch.yml` |
-| `automation:worker` | `#e4e669` | `worker-dispatch.yml` applies to every Worker PR |
-| `needs-human` | `#d93f0b` | `gatekeeper.yml` and `auto-rebase.yml` apply on failure |
+## Local equivalents
 
----
+Operations that used to live in GHA workflows but now happen locally:
 
-## Fork PR security
-
-None of the automation workflows use `pull_request_target`. They trigger on:
-- `issues` events (no fork artifact access involved)
-- `repository_dispatch` (internal, requires write access to emit)
-- `issue_comment` / `pull_request_review_comment` (guarded by `author_association` check)
-- `push: main` (push to main is already protected)
-- `pull_request_review` / `check_suite` (reads only; merge requires `GITHUB_TOKEN` write permission on the workflow's own runner)
-
-`ANTHROPIC_API_KEY` is **never** exposed to workflows triggered from fork PRs.
-
----
-
-## Operating the pipeline
-
-### Enable the pipeline
-```
-gh variable set AUTOMATION_ENABLED --body "true"
-```
-
-### Disable the pipeline (kill switch)
-```
-gh variable set AUTOMATION_ENABLED --body "false"
-```
-
-### Trigger manually (for testing)
-```
-# Simulate an issue open event
-gh api repos/<owner>/live-class/dispatches \
-  -f event_type=worker-task \
-  -f client_payload='{"manifest":{"issue":999,"tasks":[{"nn":"01","file":"plan/before/01_test.md","role":"Generalist_Worker","deps":[],"cost_budget_tokens":10000}]},"base_branch":"main","issue_number":999}'
-```
-
-### Retry a failed worker
-Leave a comment on the PR:
-```
-@claude fix the failing test in EnrollmentServiceTest
-```
-
-The `comment-handler.yml` will pick it up if you have `OWNER`, `MEMBER`, or `COLLABORATOR` association.
-
-### Re-plan a maestro-managed issue
-Leave a comment on the Issue:
-```
-@claude re-plan with scope limited to web/ only
-```
-
-### Merge a stuck worker PR manually
-```
-gh pr merge <number> --squash
-```
-
----
-
-## Extending the pipeline
-
-- **Add a new review condition to Gatekeeper.** Edit `gatekeeper.yml` steps `ci`, `gemini`, `codex` pattern and add a new `steps.newcheck.outputs.*` to the merge condition.
-- **Add a new role.** Edit the `Derive worker branch name` step in `worker-dispatch.yml` to recognize the new role slug.
-- **Increase cost cap.** Adjust `MAESTRO_TOKEN_BUDGET` in `maestro-dispatch.yml` and the 200K cap in `docs/architecture/automation-pipeline.md`.
-- **Add Slack notifications.** Introduce a `notify` job after `evaluate` in `gatekeeper.yml`, using `slackapi/slack-github-action`.
+| GHA workflow (removed) | Local replacement |
+|-------------------------|-------------------|
+| `worker-dispatch.yml` | User: "Issue #<n> 의 Worker 들 실행해" — main session invokes Worker subagent in matrix |
+| `comment-handler.yml` | User reads `@claude ...` PR comment, instructs main session to retry Worker with extra instruction |

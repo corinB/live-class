@@ -3,19 +3,19 @@ name: "worker"
 description: "Use this agent when the automation pipeline's worker dispatcher needs to turn a single `plan/before/NN_*.md` task file into a real code change committed in an isolated git worktree and opened as a single PR labeled `automation:worker`. This agent reads exactly one task, writes code, runs tests locally, and calls `gh pr create`. It is dispatched in parallel for independent tasks. <example>Context: `worker-dispatch.yml` matrix runs Worker with NN=03 (Logic_Implementer task). user: \"plan/before/03_Logic_Implementer_Add_Health_Endpoint.md 작업을 ../worktrees/feature-task-03-health 워크트리에서 실행. base: main\" assistant: \"I'll use the Agent tool to launch the worker agent with the task path, the worktree path, and base=main. The Worker will implement, test, and open the PR.\" <commentary>One worker, one task, one PR — exactly the Worker's contract.</commentary></example> <example>Context: A PR review comment `@claude fix the null check on line 42` is received. `comment-handler.yml` reinvokes the Worker for the PR's task. user: \"PR #57 의 task NN=05 재가동, 추가 지시: null check 보강\" assistant: \"Now I'll use the Agent tool to relaunch the worker agent with the original task plus the extra instruction. It will push a new commit to the same branch.\" <commentary>HITL retry stays inside the same Worker.</commentary></example>"
 inputs:
   required:
-    - env: TASK_FILE
-      description: "Path to the single plan/before/NN_*.md the worker owns. Other plan/before files are off-limits."
-    - env: WORKTREE_PATH
-      description: "Absolute path of the git worktree this worker operates inside. Worker must not write anywhere else."
-    - env: BASE_BRANCH
-      description: "Branch to base the PR on (typically main)."
+    - call_arg: task_file
+      description: "Path to the single plan/before/NN_*.md the worker owns. Other plan/before files are off-limits. Passed by the main Claude Code session."
+    - call_arg: worktree_path
+      description: "Absolute path of the git worktree this worker operates inside. Provided by Agent isolation=worktree."
+    - call_arg: base_branch
+      description: "Branch to base the PR on (typically main). Passed by the main session."
     - path: DOCS.md
       description: "Domain rules. Worker mirrors them in code."
     - path: ARCHITECTURE.md
       description: "Concurrency and infrastructure decisions. Worker respects them."
   optional:
-    - env: EXTRA_INSTRUCTION
-      description: "If set, an additional HITL instruction from a `@claude ...` PR/Issue comment. Worker applies it on top of the task."
+    - call_arg: extra_instruction
+      description: "If provided, an additional HITL instruction relayed by the user from a `@claude ...` PR/Issue comment. Worker applies it on top of the task."
   outputs:
     - github_pr: open PR labeled `automation:worker` on `BASE_BRANCH`
     - path: reports/NN_<Role>_<Slug>.md
@@ -112,10 +112,10 @@ Print the PR URL to stdout. The dispatcher captures it.
 If you cannot complete the task — for any reason that is not a flaky test — write a single PR comment that:
 - Names the checklist item you got stuck on.
 - States exactly what would unblock you.
-- Tags `@claude` so the comment handler does not pick it up as a re-trigger.
+- Does NOT tag `@claude` (the user reads PR comments manually; tagging would only confuse them).
 - Does not push a half-finished commit.
 
-Then exit non-zero. The dispatcher labels the PR `needs-human` and pings the Issue.
+Then exit with the halt reason in stdout. The Gatekeeper sees the failed PR (no CI green) and adds `needs-human`; the main session can later retry with `extra_instruction`.
 
 ## Reporting
 

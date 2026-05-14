@@ -48,6 +48,28 @@ Run agents in this order. **Do not skip steps.** Each downstream agent verifies 
 
 Steps 4a and 4b can run concurrently with each other once step 3 is done. Step 5 fan-out: each worker runs with `isolation: "worktree"` so that parallel workers do not collide.
 
+## The automation pipeline (Issue-driven)
+
+A second, **local-driven** pipeline exists for repeating the loop continuously from a single GitHub Issue. It coexists with the human-driven pipeline above and shares the same `plan/before/` + `worktree` conventions.
+
+| # | Actor | Consumes | Produces |
+|---|---|---|---|
+| 1 | User | business idea | GitHub Issue with label `maestro:auto` (template-enforced) |
+| 2 | `maestro-dispatch.yml` (GitHub Actions, no LLM) | issue event | `needs-maestro` label + Issue comment instructing local invocation |
+| 3 | `maestro` (`.claude/agents/maestro.md`) — invoked by main session | Issue payload + `DOCS.md` + `ARCHITECTURE.md` | `plan/before/NN_*.md` + `plan/before/manifest.json` |
+| 4 | `worker` (`.claude/agents/worker.md`) × N — invoked by main session | a single task file | a single PR labeled `automation:worker` |
+| 5 | `gatekeeper.yml` (GitHub Actions, no LLM) | CI + Gemini review on PR | auto-merge or `needs-human` |
+| 6 | `auto-rebase.yml` (GitHub Actions, no LLM) | `push: main` event | rebase of open `automation:worker` PRs |
+
+**Coexistence with the human-driven pipeline:**
+
+- The two pipelines share `plan/before/` + `plan/after/` + `reports/`. Numbering is global; Maestro reserves the next available `NN`.
+- `blueprint-executor-worker` (human-driven) and `worker` (automation) MAY both have open PRs at the same time; they are distinguished only by the `automation:worker` label.
+- `gatekeeper.yml` and `auto-rebase.yml` only act on PRs that carry `automation:worker`. Human-driven PRs are unaffected.
+- Kill switch: Repository variable `AUTOMATION_ENABLED=false` disables all three automation workflows without touching the human-driven flow.
+
+Detail: `docs/architecture/automation-pipeline.md`, `docs/architecture/automation-pipeline-workflows.md`, and the user guides under `docs/guides/automation-*.md`.
+
 ```
 ddd-domain-architect ──► DOCS.md
                             │

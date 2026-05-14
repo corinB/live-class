@@ -1,140 +1,43 @@
-# Automation pipeline: receives maestro:auto labeled Issues and invokes the Maestro subagent
-name: Maestro Dispatch
+# Automation pipeline: notifies that a maestro:auto Issue is awaiting local Claude Code processing
+# After realign: GitHub Actions does NOT invoke Claude. The main Claude Code session runs Maestro on demand.
+name: Maestro Dispatch (notify)
 
 on:
   issues:
     types: [opened, labeled]
 
 jobs:
-  maestro:
-    name: Run Maestro
+  notify:
+    name: Tag and Notify
     runs-on: ubuntu-latest
-    # Only fire when the maestro:auto label is present on the issue
     if: |
       vars.AUTOMATION_ENABLED == 'true' &&
       contains(github.event.issue.labels.*.name, 'maestro:auto')
     permissions:
-      contents: write
       issues: write
 
     steps:
       - name: Kill-switch check
-        run: |
-          echo "AUTOMATION_ENABLED=${{ vars.AUTOMATION_ENABLED }}"
-          if [ "${{ vars.AUTOMATION_ENABLED }}" != "true" ]; then
-            echo "Automation is disabled. Exiting."
-            exit 0
-          fi
+        run: echo "AUTOMATION_ENABLED=${{ vars.AUTOMATION_ENABLED }}"
 
-      - name: Checkout main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Claude Code SDK
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Resolve next NN
-        id: nn
-        run: |
-          # Find the highest NN in plan/before/ and plan/after/, then +1
-          NN=$(ls plan/before/ plan/after/ 2>/dev/null \
-            | grep -oP '^\d{2}' | sort -n | tail -1 || echo "00")
-          NEXT=$(printf "%02d" $(( 10#$NN + 1 )))
-          echo "nn=$NEXT" >> "$GITHUB_OUTPUT"
-
-      - name: Create Maestro branch
-        id: branch
-        run: |
-          BRANCH="chore/maestro-${{ github.event.issue.number }}"
-          git checkout -b "$BRANCH"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-
-      - name: Run Maestro subagent
+      - name: Add needs-maestro label
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ISSUE_JSON: ${{ toJson(github.event.issue) }}
-          NEXT_NN: ${{ steps.nn.outputs.nn }}
-          MAESTRO_TOKEN_BUDGET: "180000"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node - <<'EOF'
-          const { execSync } = require('child_process');
-          const fs = require('fs');
+          gh issue edit "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --add-label "needs-maestro"
 
-          const issueJson = process.env.ISSUE_JSON;
-          const agentPath = '.claude/agents/maestro.md';
-
-          if (!fs.existsSync(agentPath)) {
-            console.error('maestro.md not found — has chore/harness-automation-design been merged?');
-            process.exit(1);
-          }
-
-          const prompt = `You are running as the Maestro subagent.
-          ISSUE_JSON env var contains the GitHub Issue payload.
-          NEXT_NN env var is the starting sequence number.
-          MAESTRO_TOKEN_BUDGET is your token budget.
-          Read ${agentPath} for your full instructions.
-          Decompose the issue into plan/before/NN_*.md files and plan/before/manifest.json.
-          Commit with message: chore(maestro): decompose issue #${JSON.parse(process.env.ISSUE_JSON).number} into tasks
-          Footer: Refs: #${JSON.parse(process.env.ISSUE_JSON).number}
-          Do NOT push. The dispatcher will push.`;
-
-          try {
-            execSync(
-              `claude --agent-file ${agentPath} -p "${prompt.replace(/"/g, '\\"')}"`,
-              {
-                stdio: 'inherit',
-                env: { ...process.env },
-              }
-            );
-          } catch (err) {
-            console.error('Maestro subagent failed:', err.message);
-            process.exit(1);
-          }
-          EOF
-
-      - name: Commit plan files
+      - name: Post acknowledgement comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-          git add plan/before/
-          if git diff --cached --quiet; then
-            echo "No plan files generated."
-            exit 1
-          fi
-          git commit -m "chore(maestro): decompose issue #${{ github.event.issue.number }} into tasks
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "이 Issue 는 \`maestro:auto\` 라벨이 붙어 있어 자동화 파이프라인 대상입니다.
 
-          Refs: #${{ github.event.issue.number }}"
+          현재 파이프라인은 **메인 Claude Code 세션이 직접 Maestro/Worker 를 호출**하는 구조입니다. GitHub Actions 는 알림 · gatekeeper · auto-rebase 만 담당합니다.
 
-      - name: Push Maestro branch
-        run: |
-          git push origin "${{ steps.branch.outputs.branch }}"
+          진행하려면 로컬 Claude Code 세션에 \`Issue #${{ github.event.issue.number }} 처리해\` 라고 지시하세요. Maestro 가 \`plan/before/\` 를 만들고 Worker 들이 PR 을 엽니다.
 
-      - name: Read manifest
-        id: manifest
-        run: |
-          if [ ! -f plan/before/manifest.json ]; then
-            echo "manifest.json missing — Maestro did not emit it."
-            exit 1
-          fi
-          # Encode manifest for repository_dispatch payload (single-line JSON)
-          MANIFEST=$(cat plan/before/manifest.json | jq -c .)
-          echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
-
-      - name: Emit repository_dispatch worker-task
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: worker-task
-          client-payload: |
-            {
-              "manifest": ${{ steps.manifest.outputs.manifest }},
-              "base_branch": "${{ steps.branch.outputs.branch }}",
-              "issue_number": ${{ github.event.issue.number }}
-            }
+          상세 흐름은 \`docs/guides/automation-usage.md\` 참고."
