@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this workspace is
 
-라이브 강의 수강신청(live-class) 시스템을 개발하는 **orchestrator workspace**다. 메인 Claude Code 세션은 직접 `src/`에 코드를 쓰지 않고 6개 sub-agent(`.claude/agents/`)를 디스패치한다. 실제 애플리케이션 코드는 `live-class/`에 있으며 Spring Boot 4.0.6 · Java 21 · Gradle Groovy DSL · 모듈러 모놀리스 구조다.
+라이브 강의 수강신청(live-class) 시스템을 개발하는 **orchestrator workspace**다. 메인 Claude Code 세션은 직접 `src/`에 코드를 쓰지 않고 6개 sub-agent(`.claude/agents/`)를 디스패치한다. 실제 애플리케이션 코드는 `live-class/`에 있으며 Spring Boot 4.0.6 · Java 21 · Gradle Groovy DSL · 모듈러 모놀리스 구조다. `front/`는 Swagger UI 안내용 nginx 정적 placeholder다(compose `front` 프로파일).
 
 ---
 
@@ -28,7 +28,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 전체 테스트 | `./gradlew test` |
 | 단일 테스트 | `./gradlew test --tests com.example.liveclass.domain.clazz.ClassTest` |
 | 로컬 실행 | `./gradlew bootRun` (Postgres + Redis 필요. Swagger UI: `http://localhost:8080/swagger-ui.html`) |
-| 인프라 스택 | `docker compose up` / `docker compose down` (루트 `docker-compose.yml`) |
+| 인프라 스택 | `docker compose --profile db --profile redis --profile back --profile front up -d` / `... down` (루트 `docker-compose.yml`. `COMPOSE_PROFILES=db,redis,back,front`를 export해 두면 플래그 생략 가능) |
+
+**Docker stack 실행 전제.** 루트 `.env`에 `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_URL` / `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`가 채워져 있어야 한다. 누락 시 컨테이너가 뜨더라도 빈 자격증명으로 인증 실패가 발생한다.
 
 **테스트 실행 전제.** `./gradlew test`는 JUnit 5 + Testcontainers 기반이다.
 - 통합 테스트(`@IntegrationTest` 메타 어노테이션을 단 클래스)가 PostgreSQL/Redis 컨테이너를 띄우므로 **로컬 Docker 데몬이 떠 있어야 통과한다**.
