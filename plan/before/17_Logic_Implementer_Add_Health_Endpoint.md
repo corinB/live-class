@@ -23,12 +23,12 @@ None. Independent task. Can run on top of latest main.
 
 ## Action Items (Checklist)
 
-- [ ] Create package `com.example.liveclass.web.health`.
-- [ ] Create `HealthController` with `@RestController` and method `GET /health` returning a simple record / Map with `status: "ok"`. Add the one-line Korean header comment per parent CLAUDE.md rule 6.
-- [ ] Create `HealthControllerTest` — unit test using plain JUnit + `MockMvc` standalone setup or Spring slice (`@WebMvcTest`). Assert status 200 and body `{"status":"ok"}`.
-- [ ] Run `cd live-class && ./gradlew test --tests '*HealthControllerTest'` and confirm green.
-- [ ] Run the full `./gradlew test` once to confirm no regression elsewhere.
-- [ ] Open PR with the standard repo conventions (English Conventional Commits title, Korean PR body, `Refs: plan/before/17_Logic_Implementer_Add_Health_Endpoint.md` + `Refs: #32` in commit footer).
+- [x] Create package `com.example.liveclass.web.health`.
+- [x] Create `HealthController` with `@RestController` and method `GET /health` returning a simple record / Map with `status: "ok"`. Add the one-line Korean header comment per parent CLAUDE.md rule 6.
+- [x] Create `HealthControllerTest` — unit test using plain JUnit + `MockMvc` standalone setup or Spring slice (`@WebMvcTest`). Assert status 200 and body `{"status":"ok"}`.
+- [x] Run `cd live-class && ./gradlew test --tests '*HealthControllerTest'` and confirm green.
+- [x] Run the full `./gradlew test` once to confirm no regression elsewhere.
+- [x] Open PR with the standard repo conventions (English Conventional Commits title, Korean PR body, `Refs: plan/before/17_Logic_Implementer_Add_Health_Endpoint.md` + `Refs: #32` in commit footer).
 
 ## Notes for the worker
 - This is the first task produced by the automation pipeline as an E2E smoke test. Keep the implementation minimal and idiomatic Spring Boot 4.
