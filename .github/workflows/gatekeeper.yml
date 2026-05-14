@@ -1,4 +1,5 @@
-# Automation pipeline: auto-merges automation:worker PRs when CI + Gemini + Codex all pass
+# Automation pipeline: auto-merges automation:worker PRs when CI + Gemini pass
+# NOTE: codex-review marker check is temporarily removed until the Codex GitHub App producer ships.
 name: Gatekeeper
 
 on:
@@ -117,27 +118,12 @@ jobs:
             fi
           fi
 
-      - name: Check condition 3 — codex-review: pass marker
-        id: codex
-        if: steps.target.outputs.skip == 'false' && steps.target.outputs.has_label == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUM="${{ steps.target.outputs.pr_number }}"
-
-          MARKER=$(gh pr view "$PR_NUM" --json comments \
-            --jq '[.comments[].body] | any(test("codex-review: pass"))' \
-            2>/dev/null || echo "false")
-
-          echo "codex_pass=$MARKER" >> "$GITHUB_OUTPUT"
-
       - name: Auto-merge if all conditions pass
         if: |
           steps.target.outputs.skip == 'false' &&
           steps.target.outputs.has_label == 'true' &&
           steps.ci.outputs.ci_green == 'true' &&
-          steps.gemini.outputs.gemini_pass == 'true' &&
-          steps.codex.outputs.codex_pass == 'true'
+          steps.gemini.outputs.gemini_pass == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -152,8 +138,7 @@ jobs:
           steps.target.outputs.has_label == 'true' &&
           (
             steps.ci.outputs.ci_green != 'true' ||
-            steps.gemini.outputs.gemini_pass != 'true' ||
-            steps.codex.outputs.codex_pass != 'true'
+            steps.gemini.outputs.gemini_pass != 'true'
           )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -161,7 +146,6 @@ jobs:
           PR_NUM="${{ steps.target.outputs.pr_number }}"
           CI="${{ steps.ci.outputs.ci_green }}"
           GEMINI="${{ steps.gemini.outputs.gemini_pass }}"
-          CODEX="${{ steps.codex.outputs.codex_pass }}"
 
           gh pr edit "$PR_NUM" --add-label "needs-human" || true
 
@@ -173,7 +157,6 @@ jobs:
           MSG="Gatekeeper blocked auto-merge for PR #${PR_NUM}.
           - Build & Test: ${CI}
           - Gemini review (P0=0 and P1=0): ${GEMINI}
-          - codex-review: pass marker: ${CODEX}
 
           Please resolve and use \`@claude fix ...\` to retry."
 
