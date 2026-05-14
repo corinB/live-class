@@ -58,8 +58,8 @@
   - 워크트리 안에 `src/main/java/**` · `src/test/java/**` 코드.
   - 작업 명세의 체크리스트를 모두 `[x]`로 완료.
   - `reports/<NN>_<agent-name>_<YYYY-MM-DD>.md` 보고서 작성 (`.claude/templates/report.md.template` 기반, Input Summary / What Was Done / Rationale & Tradeoffs / Follow-ups 4개 섹션).
-- **plan 이동**: 워커가 하지 않는다. PR 머지 후 별도 `chore(plan): move task NN to after/ ...` 커밋으로 `plan/before/NN_*.md` → `plan/after/NN_*.md` 이동. PreToolUse hook이 두 조건(`reports/NN_*.md` 존재 + 체크리스트 전부 `[x]`)을 검증해 위반 시 이동을 deny.
-- **다음**: PR 머지 + plan 이동 chore 후 다음 태스크 파일로 `/exec-blueprint` 재호출.
+- **plan 이동**: 워커가 **같은 PR 안에서** `git mv plan/before/NN_*.md plan/after/NN_*.md`를 실행한다. PreToolUse hook이 두 조건(`reports/NN_*.md` 존재 + 체크리스트 전부 `[x]`)을 검증해 위반 시 이동을 deny하므로 reports와 체크리스트가 먼저 완료돼야 한다. squash merge 시 code + report + plan 전이가 atomic하게 main으로 들어간다.
+- **다음**: PR 머지 후 다음 태스크 파일로 `/exec-blueprint` 재호출.
 
 ## 호출 패턴 공통
 
