@@ -75,40 +75,11 @@ public class EnrollmentMirrorService {
      * Calls enrollment_cancel_promote.lua — atomically removes the cancelled member and
      * promotes the oldest WAITLISTED member.
      * Returns null if no promotion occurred, or a two-element list [promotedClassmateId, scoreNanos].
+     * Full implementation in task 10.
      */
-    @SuppressWarnings({"rawtypes", "unchecked"})
+    @SuppressWarnings("rawtypes")
     public List<String> cancelAndMaybePromote(UUID classId, UUID classmateId, boolean wasConfirmed) {
-        try {
-            List raw = redisTemplate.execute(
-                    enrollmentCancelPromoteScript,
-                    List.of("enrolled:" + classId, "waitlist:" + classId),
-                    classmateId.toString(),
-                    wasConfirmed ? "1" : "0");
-            // Lua 'return nil' arrives as null or as a list containing a single null element
-            if (raw == null || raw.isEmpty() || raw.get(0) == null) {
-                return null;
-            }
-            return (List<String>) raw;
-        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
-            throw new MirrorUnavailableException("Redis unavailable during cancel+promote", ex);
-        }
-    }
-
-    /**
-     * Reverses a failed cancel+promote by restoring the canceller to enrolled ZSET
-     * and returning the promoted member back to waitlist ZSET.
-     * Two separate calls — accepted tradeoff per task 10 blueprint.
-     */
-    public void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted, long promotedScore) {
-        try {
-            // Restore canceller to enrolled with current-time score (approximate — reconcile will correct if needed)
-            long now = System.nanoTime();
-            redisTemplate.opsForZSet().add("enrolled:" + classId, canceller.toString(), now);
-            // Restore promoted member back to waitlist with original score
-            redisTemplate.opsForZSet().add("waitlist:" + classId, promoted.toString(), promotedScore);
-        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
-            throw new MirrorUnavailableException("Redis unavailable during reverse cancel+promote", ex);
-        }
+        throw new UnsupportedOperationException("implemented in task 10");
     }
 
     /**
