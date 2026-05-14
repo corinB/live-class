@@ -58,7 +58,10 @@
     "PostToolUse": [
       {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-md-lint.sh\""}]},
       {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-warn-bean-collision.sh\""}]},
-      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-context-stale.sh\""}]}
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-context-stale.sh\""}]},
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-write-claudemd-english.sh\""}]},
+      {"matcher": "Bash",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-bash-output-size-guard.sh\""}]},
+      {"matcher": "Read",       "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-read-surrogate-detect.sh\""}]}
     ]
   }
 }
