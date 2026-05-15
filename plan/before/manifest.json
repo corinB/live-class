@@ -1,19 +1,126 @@
 {
-  "issue": 55,
+  "issue": 70,
+  "issue_url": "https://github.com/corinB/live-class/issues/70",
   "tasks": [
     {
-      "nn": "18",
-      "file": "plan/before/18_Logic_Implementer_Add_Pong_Endpoint.md",
+      "nn": "29",
+      "phase": "A",
+      "file": "plan/before/29_Logic_Implementer_Context_Yaml_Baseline.md",
       "role": "Logic_Implementer",
       "deps": [],
-      "cost_budget_tokens": 30000
+      "blocking_external": null,
+      "acceptance": "metadata.last_indexed updated to today; docs/** references in context.yaml validated against disk; audit-context-yaml.py exit 0",
+      "cost_budget_tokens": 20000
     },
     {
-      "nn": "19",
-      "file": "plan/before/19_Logic_Implementer_Canceller_Score_Restore.md",
+      "nn": "30",
+      "phase": "B",
+      "file": "plan/before/30_Infra_Operator_Branch_Protection_Setup.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "gh api repos/corinB/live-class/branches/main/protection returns 200 with enforce_admins=true, allow_force_pushes=false, required_pr_reviews.require_code_owner_reviews=true, required_status_checks.contexts includes build-and-test/gatekeeper/gemini-review/link-check; .github/CODEOWNERS exists",
+      "cost_budget_tokens": 25000
+    },
+    {
+      "nn": "31",
+      "phase": "C",
+      "file": "plan/before/31_Infra_Operator_Context_Yaml_Schema_Guards.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "Four new hooks registered in .claude/settings.json; Write/Edit on context.yaml with bad path blocked; git commit with drifted context.yaml blocked; CONTEXT_GUARD_OFF=1 bypasses",
+      "cost_budget_tokens": 25000
+    },
+    {
+      "nn": "32",
+      "phase": "D",
+      "file": "plan/before/32_Infra_Operator_Wiki_Pair_Sync_Guards.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "pre-bash-wiki-pair-sync-guard.sh blocks commit when only one half of a doc/wiki pair is staged; .github/workflows/wiki-pair-sync.yml fails PR on skew; WIKI_PAIR_GUARD_OFF=1 bypasses",
+      "cost_budget_tokens": 22000
+    },
+    {
+      "nn": "33",
+      "phase": "E",
+      "file": "plan/before/33_Infra_Operator_Context_Drift_Cron.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": ".github/workflows/context-drift-cron.yml exists with daily schedule + workflow_dispatch; clean baseline produces no issue; drift opens one tracking issue with context-drift label and auto-closes on resolution",
+      "cost_budget_tokens": 20000
+    },
+    {
+      "nn": "34",
+      "phase": "F",
+      "file": "plan/before/34_Quality_Guardian_Required_Status_Check_Audit.md",
+      "role": "Quality_Guardian",
+      "deps": ["30", "31", "32", "33"],
+      "blocking_external": null,
+      "acceptance": "audit-status-checks.py reports zero missing contexts; .github/workflows/status-check-audit.yml green on main; report file documents verification of upstream Phases B-E",
+      "cost_budget_tokens": 18000
+    },
+    {
+      "nn": "35",
+      "phase": "G-1",
+      "file": "plan/before/35_Infra_Operator_Cleanup_One_Shot_External_Actions.md",
+      "role": "Infra_Operator",
+      "deps": ["30"],
+      "blocking_external": null,
+      "acceptance": "delete_branch_on_merge=true on repo; Issue #58 closed; no stale merged-PR head branches remain; Wiki Home returns 200; dry-run + applied mutation report committed",
+      "cost_budget_tokens": 20000
+    },
+    {
+      "nn": "36",
+      "phase": "G-2",
+      "file": "plan/before/36_Infra_Operator_Cleanup_Worktrees_Script.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "cleanup-worktrees.sh exists, --dry-run default, --execute removes only merged worktrees and appends to reports/cleanup-log.md; never removes main worktree or current pwd",
+      "cost_budget_tokens": 18000
+    },
+    {
+      "nn": "37",
+      "phase": "G-3",
+      "file": "plan/before/37_Infra_Operator_Cleanup_Untracked_Leftovers_Script.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "cleanup-untracked-leftovers.sh exists with hard-coded allowlist (.clone/worktrees, reports/14_*, reports/20_*, reports/27_*, docs/engineering/); refuses tracked paths; logs deletions to reports/cleanup-log.md",
+      "cost_budget_tokens": 18000
+    },
+    {
+      "nn": "38",
+      "phase": "G-4",
+      "file": "plan/before/38_Logic_Implementer_Docs_Engineering_Backfill.md",
       "role": "Logic_Implementer",
-      "deps": [],
-      "cost_budget_tokens": 30000
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "git ls-files docs/engineering returns empty; wiki-src/ko/docs/engineering contains the migrated files; all cross-links updated; audit-context-yaml.py exit 0",
+      "cost_budget_tokens": 18000
+    },
+    {
+      "nn": "39",
+      "phase": "G-5",
+      "file": "plan/before/39_Infra_Operator_Maintenance_Cleanup_Workflow.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": ".github/workflows/maintenance-cleanup.yml exists with weekly cron + workflow_run after CI success + issues labeled trigger filtered to maestro:auto; default dry-run posts sticky comment on open chore issue",
+      "cost_budget_tokens": 22000
+    },
+    {
+      "nn": "40",
+      "phase": "G-6",
+      "file": "plan/before/40_Infra_Operator_Stop_Warn_Cleanup_Hook.md",
+      "role": "Infra_Operator",
+      "deps": ["29"],
+      "blocking_external": null,
+      "acceptance": "stop-warn-cleanup-candidates.sh registered as Stop hook; advisory output only on clean+dirty repos; CLEANUP_HINT_OFF=1 silences; hook always exits 0",
+      "cost_budget_tokens": 15000
     }
   ]
 }
