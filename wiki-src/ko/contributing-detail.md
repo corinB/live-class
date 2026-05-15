@@ -1,4 +1,4 @@
-# Contributing Guide
+﻿# Contributing Guide
 
 이 저장소의 브랜치 전략, 커밋 메시지 컨벤션, PR 절차를 정의한다.
 모든 기여자(서브 에이전트 포함)는 이 규약을 준수해야 한다.
@@ -118,13 +118,13 @@ test/task-12-concurrency-integration
 작업 브랜치가 대응하는 태스크 파일을 다음 형식으로 반드시 명시한다.
 
 ```
-Refs: plan/before/NN_<Role>_<Slug>.md
+Refs: wiki-src/plan-before/NN_<Role>_<Slug>.md
 ```
 
 예시.
 
 ```
-Refs: plan/before/09_Logic_Implementer_Enrollment_Apply_Service_And_Controller.md
+Refs: wiki-src/plan-before/09_Logic_Implementer_Enrollment_Apply_Service_And_Controller.md
 ```
 
 ### 2.6 BREAKING CHANGE 표기
@@ -151,7 +151,7 @@ feat(enrollment): add Redisson lock to prevent last-seat race
 Redisson RLock을 사용해 신청 시 정원 초과 race condition을 방지한다.
 wait 500ms / lease 3s 정책을 적용한다.
 
-Refs: plan/before/09_Logic_Implementer_Enrollment_Apply_Service_And_Controller.md
+Refs: wiki-src/plan-before/09_Logic_Implementer_Enrollment_Apply_Service_And_Controller.md
 ```
 
 ```
@@ -160,7 +160,7 @@ fix(class): validate state transition direction before apply
 역방향 상태 전이 시도 시 도메인 예외를 던지도록 수정한다.
 OPEN → DRAFT 역전이가 허용되던 결함을 제거한다.
 
-Refs: plan/before/04_Logic_Implementer_Class_Domain_Entity.md
+Refs: wiki-src/plan-before/04_Logic_Implementer_Class_Domain_Entity.md
 ```
 
 ```
@@ -169,7 +169,7 @@ test(enrollment): add 10-thread concurrency test for last-seat scenario
 ExecutorService 10 스레드로 동시 신청 race 시뮬레이션을 추가한다.
 10회 연속 통과를 커버리지 기준으로 설정한다.
 
-Refs: plan/before/12_Quality_Guardian_Concurrency_Integration_Tests.md
+Refs: wiki-src/plan-before/12_Quality_Guardian_Concurrency_Integration_Tests.md
 ```
 
 **나쁜 예시.**
@@ -235,13 +235,13 @@ CI(검증)와 CD(배포)를 두 파일로 분리한다. 한 워크플로우에 �
 
 ### 4.3 자동화 파이프라인 PR
 
-`maestro:auto` 라벨이 붙은 Issue 가 만들어지면 `maestro-dispatch.yml` 이 Issue 에 알림 코멘트를 달고 `needs-maestro` 라벨을 붙인다. 사용자가 메인 Claude Code 세션에 `Issue #<n> 처리해` 라고 지시하면 Maestro 가 `plan/before/NN_*.md` 를 만들고 Worker 들이 각각 PR 을 연다.
+`maestro:auto` 라벨이 붙은 Issue 가 만들어지면 `maestro-dispatch.yml` 이 Issue 에 알림 코멘트를 달고 `needs-maestro` 라벨을 붙인다. 사용자가 메인 Claude Code 세션에 `Issue #<n> 처리해` 라고 지시하면 Maestro 가 `wiki-src/plan-before/NN_*.md` 를 만들고 Worker 들이 각각 PR 을 연다.
 
 자동 생성 PR 의 규약:
 
 - 브랜치: 일반 task PR 과 동일한 `feature/task-NN-<slug>` 규칙. Maestro 가 push 한 분해 커밋은 `chore/maestro-<issue-number>` 브랜치(merge 대상 아님, plan/before 동기화용).
 - 라벨: `automation:worker` 가 PR open 시 자동 부여.
-- 커밋 메시지: 일반 Conventional Commits 규약 + 푸터에 `Refs: plan/before/NN_*.md` + `Refs: #<issue-number>`.
+- 커밋 메시지: 일반 Conventional Commits 규약 + 푸터에 `Refs: wiki-src/plan-before/NN_*.md` + `Refs: #<issue-number>`.
 - 머지: `gatekeeper.yml` 이 두 조건(CI green + Gemini P0/P1=0) 충족 시 자동 squash merge. 실패하면 `needs-human` 라벨 + PR/Issue 코멘트.
 - main 이 앞서가면 `auto-rebase.yml` 이 자동 rebase. 충돌 시 `needs-human` 라벨 + `@claude rebase` 코멘트.
 - HITL: PR review comment 또는 issue_comment 에 의견을 남기되, 자동 트리거는 없으므로 사용자가 메인 세션에 직접 "PR #X 코멘트 반영해" 라고 말해 Worker 를 재호출한다. 상세는 `docs/guides/automation-hitl.md`.

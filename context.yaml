@@ -134,9 +134,9 @@ context_map:
       contains: "application.yaml ??per-profile config. Secrets are injected via env vars."
     - path: "live-class/src/test/java"
       contains: "Unit, integration, and concurrency tests"
-    - path: "plan/before"
+    - path: "wiki-src/plan-before"
       contains: "Micro-task specs emitted by scrum-task-decomposer or maestro"
-    - path: "plan/after"
+    - path: "wiki-src/plan-after"
       contains: "Completed task files, moved by the worker in the same PR"
     - path: "reports"
       contains: "End-of-run reports per agent. Format: reports/{NN_step}_{agent-name}_{YYYY-MM-DD}.md"
@@ -194,10 +194,10 @@ automation_pipeline:
   agents:
     - name: "maestro"
       path: ".claude/agents/maestro.md"
-      role: "Decompose the Issue into plan/before/NN_*.md + manifest.json. Never writes code."
+      role: "Decompose the Issue into wiki-src/plan-before/NN_*.md + manifest.json. Never writes code."
     - name: "worker"
       path: ".claude/agents/worker.md"
-      role: "Implement one plan/before/NN_*.md inside an isolated worktree and open one PR labeled automation:worker."
+      role: "Implement one wiki-src/plan-before/NN_*.md inside an isolated worktree and open one PR labeled automation:worker."
   workflows:
     - name: "maestro-dispatch.yml"
       purpose: "Notify the user (Issue comment + needs-maestro label) that the local Maestro should run. No LLM call."
@@ -263,6 +263,6 @@ metadata:
     - path: "README.md"
       description: "(to be written on day 5) Submission README"
   pipeline_state_files:
-    - "plan/before/*.md  # pending tasks"
+    - "wiki-src/plan-before/*.md  # pending tasks"
     - "wiki-src/plan-after/*.md  # completed tasks (Wiki staging area)"
     - "wiki-src/ko/reports/*.md  # per-agent end-of-run reports (Korean)"
