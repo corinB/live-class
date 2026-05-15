@@ -4,7 +4,6 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 > Companion docs.
 > - `ORCHESTRATION.md` — multi-agent pipeline policy (stages, deliverables, blocking rules).
-> - `AGENTS-SKILLS-HARNESS.md` — 1-page hub (detailed catalogs in `docs/agents/*.md` and `docs/harness/*.md`).
 > - `DOCS.md` — DDD domain design (bounded contexts, aggregates, state transitions, domain events, invariants).
 > - `ARCHITECTURE.md` — concurrency, caching, scheduling (strategy comparison, rationale for Redis ZSET + Lua atomic script).
 > - `CONTRIBUTING.md` — branch, commit, PR conventions.
