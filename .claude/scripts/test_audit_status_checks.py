@@ -20,6 +20,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+# importlib.util is used because the target script filename contains a hyphen
+# ("audit-status-checks.py"), which the standard ``import`` statement cannot handle.
 import importlib.util
 
 SCRIPT_DIR = Path(__file__).resolve().parent
