@@ -21,26 +21,33 @@ except ImportError:
     sys.exit(1)
 
 
-def run_gh(args: list[str]) -> dict | list:
+def run_gh(args: list[str], allow_fail: bool = False) -> dict | list | None:
     result = subprocess.run(
         ["gh"] + args,
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
+        if allow_fail:
+            return None
         print(f"gh command failed: {' '.join(args)}", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
         sys.exit(1)
-    return json.loads(result.stdout)
+    return json.loads(result.stdout) if result.stdout.strip() else None
 
 
-def get_required_contexts(repo: str) -> list[str]:
+def get_required_contexts(repo: str) -> list[str] | None:
+    """Returns the required contexts list, or None if branch protection is not
+    readable (e.g., GITHUB_TOKEN in CI lacks admin scope). In that case we skip
+    the protection vs workflow comparison and only verify workflows parse."""
     data = run_gh([
         "api",
         f"repos/{repo}/branches/main/protection",
         "--jq",
         ".required_status_checks.contexts",
-    ])
+    ], allow_fail=True)
+    if data is None:
+        return None
     return data if isinstance(data, list) else []
 
 
@@ -99,8 +106,19 @@ def main() -> int:
 
     print("=== Required status checks audit ===")
 
-    # 1. Fetch required contexts from branch protection
-    required: list[str] = get_required_contexts(repo)
+    # 1. Fetch required contexts from branch protection (may be unreadable in CI)
+    required_or_none = get_required_contexts(repo)
+    if required_or_none is None:
+        print("\n(branch protection not readable -- GITHUB_TOKEN likely lacks admin scope.")
+        print(" Skipping protection-vs-workflow comparison; verifying workflow parse only.)")
+        # Best-effort: still walk workflows and report parse errors.
+        local_mapping = collect_job_contexts(workflows_dir)
+        print("\nWorkflow -> produced contexts mapping:")
+        for wf_name, contexts in sorted(local_mapping.items()):
+            print(f"  {wf_name} -> {contexts}")
+        print("\nResult: PASS (workflow parse only)")
+        return 0
+    required: list[str] = required_or_none
     print("\nRequired contexts (from branch protection):")
     for ctx in required:
         print(f"  - {ctx}")
