@@ -1,9 +1,16 @@
 {
-  "issue": 51,
+  "issue": 55,
   "tasks": [
     {
       "nn": "18",
       "file": "plan/before/18_Logic_Implementer_Add_Pong_Endpoint.md",
+      "role": "Logic_Implementer",
+      "deps": [],
+      "cost_budget_tokens": 30000
+    },
+    {
+      "nn": "19",
+      "file": "plan/before/19_Logic_Implementer_Canceller_Score_Restore.md",
       "role": "Logic_Implementer",
       "deps": [],
       "cost_budget_tokens": 30000
