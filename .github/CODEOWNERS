@@ -1,0 +1,11 @@
+# 모든 변경은 corinB 리뷰가 필요한 기본 CODEOWNERS
+
+# Default owner for everything in the repo
+* @corinB
+
+# Specific tighter ownership for protected areas
+/wiki-src/**          @corinB
+/.claude/**           @corinB
+/.github/workflows/** @corinB
+/context.yaml         @corinB
+/CLAUDE.md            @corinB
