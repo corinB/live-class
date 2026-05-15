@@ -6,6 +6,7 @@ set -euo pipefail
 # Usage: pipeline_state_badge
 pipeline_state_badge() {
   local docs_mark arch_mark before_count after_count
+  local wiki_before_count wiki_after_count
 
   if [ -f "DOCS.md" ]; then
     docs_mark="✓"
@@ -26,12 +27,29 @@ pipeline_state_badge() {
     before_count=0
   fi
 
+  # wiki-src/plan-before 디렉터리의 .md 파일 수 계산 (wiki 마이그레이션 Phase 4b 이후 존재)
+  if [ -d "wiki-src/plan-before" ]; then
+    wiki_before_count=$(find wiki-src/plan-before -maxdepth 1 -name "*.md" ! -name ".gitkeep" 2>/dev/null | wc -l | tr -d ' ')
+  else
+    wiki_before_count=0
+  fi
+
   # plan/after 디렉터리의 .md 파일 수 계산 (.gitkeep 제외)
   if [ -d "plan/after" ]; then
     after_count=$(find plan/after -maxdepth 1 -name "*.md" ! -name ".gitkeep" 2>/dev/null | wc -l | tr -d ' ')
   else
     after_count=0
   fi
+
+  # wiki-src/plan-after 디렉터리의 .md 파일 수 계산 (wiki 마이그레이션 Phase 3 이후 존재)
+  if [ -d "wiki-src/plan-after" ]; then
+    wiki_after_count=$(find wiki-src/plan-after -maxdepth 1 -name "*.md" ! -name ".gitkeep" 2>/dev/null | wc -l | tr -d ' ')
+  else
+    wiki_after_count=0
+  fi
+
+  before_count=$(( before_count + wiki_before_count ))
+  after_count=$(( after_count + wiki_after_count ))
 
   echo "[pipeline] DOCS:${docs_mark} · ARCH:${arch_mark} · before:${before_count} · after:${after_count}"
 }
