@@ -31,9 +31,12 @@ if ! printf '%s' "$command_clean" | grep -qE '(^|[[:space:];&|])(rm|git[[:space:
   exit 0
 fi
 
-# Tokenize by whitespace. Quoted file names are not perfectly handled (bash 3 limitation), but
-# this gives us "full-token" matching for the common rm patterns.
-tokens=$(printf '%s' "$command_clean" | tr ' \t' '\n\n')
+# Tokenize by whitespace then strip surrounding quotes from each token so that
+# `rm "ARCHITECTURE.md"` and `rm 'ARCHITECTURE.md'` are detected the same as the
+# unquoted form. \047 is octal for single quote, used to embed inside a single-quoted sed script.
+tokens=$(printf '%s' "$command_clean" \
+  | tr ' \t' '\n\n' \
+  | sed -E 's/^["\047]+//; s/["\047]+$//')
 
 ROOT_DOCS=("ARCHITECTURE.md" "DOCS.md" "CONTRIBUTING.md" "ORCHESTRATION.md")
 WIKI_DETAILS=("wiki-src/ko/architecture-detail.md" "wiki-src/ko/docs-detail.md" "wiki-src/ko/contributing-detail.md" "wiki-src/ko/orchestration-detail.md")
