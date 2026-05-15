@@ -1,4 +1,4 @@
-// task 02 에서 등록된 RedisScript 3개를 호출하는 thin wrapper. apply / cancelAndMaybePromote / compensateApply / primeClassStatusMirror 메서드 제공.
+// task 02 에서 등록된 RedisScript 4개를 호출하는 thin wrapper. apply / cancelAndMaybePromote / compensateApply / reverseCancelPromote / primeClassStatusMirror 메서드 제공.
 package com.example.liveclass.application.enrollment;
 
 import com.example.liveclass.domain.clazz.ClassStatus;
@@ -13,9 +13,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Thin wrapper around the three Lua RedisScripts registered in LuaScriptConfig (task 02).
- * Method bodies for tryApply, compensateApply, and cancelAndMaybePromote are stubs —
- * full implementations are added in task 09/10.
+ * Thin wrapper around the four Lua RedisScripts registered in LuaScriptConfig.
+ * reverseCancelPromote uses a single atomic Lua script to restore both ZSET entries
+ * in one Redis round-trip, eliminating the partial-failure window that existed when
+ * two separate ZADD calls were used.
  */
 @Service
 public class EnrollmentMirrorService {
@@ -25,17 +26,20 @@ public class EnrollmentMirrorService {
     @SuppressWarnings("rawtypes")
     private final RedisScript<List> enrollmentCancelPromoteScript;
     private final RedisScript<Long> enrollmentCompensateScript;
+    private final RedisScript<Long> enrollmentReverseCancelPromoteScript;
 
     @SuppressWarnings("rawtypes")
     public EnrollmentMirrorService(
             StringRedisTemplate redisTemplate,
             RedisScript<String> enrollmentApplyScript,
             RedisScript<List> enrollmentCancelPromoteScript,
-            RedisScript<Long> enrollmentCompensateScript) {
+            RedisScript<Long> enrollmentCompensateScript,
+            RedisScript<Long> enrollmentReverseCancelPromoteScript) {
         this.redisTemplate = redisTemplate;
         this.enrollmentApplyScript = enrollmentApplyScript;
         this.enrollmentCancelPromoteScript = enrollmentCancelPromoteScript;
         this.enrollmentCompensateScript = enrollmentCompensateScript;
+        this.enrollmentReverseCancelPromoteScript = enrollmentReverseCancelPromoteScript;
     }
 
     /**
@@ -92,17 +96,21 @@ public class EnrollmentMirrorService {
 
     /**
      * Reverse compensation after a failed promoted-enrollment DB UPDATE.
-     * Re-adds the canceller to enrolled and re-adds the promoted member to waitlist.
-     * Two separate calls — a race between them is accepted as a reconcile-recoverable edge case
-     * (ARCHITECTURE §6.3 tradeoff note).
+     * Single atomic Lua call: restores canceller to enrolled ZSET and (if promoted is non-null)
+     * removes promoted from enrolled and restores it to waitlist — all in one Redis round-trip.
      */
     public void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted, long promotedScore) {
         try {
-            // Restore canceller to enrolled (use current time nanos as score — best effort)
             long cancellerScore = System.nanoTime();
-            redisTemplate.opsForZSet().add("enrolled:" + classId, canceller.toString(), cancellerScore);
-            // Restore promoted back to waitlist
-            redisTemplate.opsForZSet().add("waitlist:" + classId, promoted.toString(), promotedScore);
+            String promotedArg = promoted != null ? promoted.toString() : "";
+            redisTemplate.execute(
+                    enrollmentReverseCancelPromoteScript,
+                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    canceller.toString(),
+                    String.valueOf(cancellerScore),
+                    promotedArg,
+                    String.valueOf(promotedScore),
+                    "1");
         } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
             throw new MirrorUnavailableException("Redis unavailable during reverse cancel promote", ex);
         }

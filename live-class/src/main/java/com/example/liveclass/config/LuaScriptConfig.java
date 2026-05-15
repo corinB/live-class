@@ -35,4 +35,12 @@ public class LuaScriptConfig {
         script.setResultType(Long.class);
         return script;
     }
+
+    @Bean
+    public DefaultRedisScript<Long> enrollmentReverseCancelPromoteScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setLocation(new ClassPathResource("lua/enrollment_reverse_cancel_promote.lua"));
+        script.setResultType(Long.class);
+        return script;
+    }
 }
