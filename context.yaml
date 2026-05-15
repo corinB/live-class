@@ -1,6 +1,32 @@
-# live-class hiring assignment — context configuration
-# Created: 2026-05-11
-# Purpose: LLM context injection and RAG guidance. Every agent/skill/doc scans this file first.
+﻿# 영문 요약과 한국어 Wiki URL을 doc 단위로 동시 보유하는 인덱스
+schema_version: 2
+
+docs:
+  - id: claude
+    summary: CLAUDE.md
+    detail_ko: null
+    audience: [ai-en, human-ko]
+    role: project conventions auto-loaded by Claude Code at session start
+  - id: architecture
+    summary: ARCHITECTURE.md
+    detail_ko: https://github.com/corinB/live-class/wiki/ko-architecture-detail
+    audience: [ai-en, human-ko]
+    role: concurrency control, caching, scheduling decisions
+  - id: docs
+    summary: DOCS.md
+    detail_ko: https://github.com/corinB/live-class/wiki/ko-docs-detail
+    audience: [ai-en, human-ko]
+    role: DDD domain design (bounded contexts, aggregates, events)
+  - id: contributing
+    summary: CONTRIBUTING.md
+    detail_ko: https://github.com/corinB/live-class/wiki/ko-contributing-detail
+    audience: [ai-en, human-ko]
+    role: branch, commit, PR conventions for multi-agent workflow
+  - id: orchestration
+    summary: ORCHESTRATION.md
+    detail_ko: https://github.com/corinB/live-class/wiki/ko-orchestration-detail
+    audience: [ai-en, human-ko]
+    role: multi-agent pipeline policy (stages, deliverables, blocking rules)
 
 project_identity:
   name: "live-class"
@@ -20,7 +46,7 @@ project_identity:
     - database: "PostgreSQL 16"
     - cache_and_lock: "Redis 7 (Lettuce client + Spring Data Redis + Lua atomic scripts; Redisson was removed by Pre-flight 4 decision)"
     - api_docs: "springdoc-openapi 2.8.5 (Swagger UI)"
-    - container: "Docker Compose (4 profiles — db, redis, back, front)"
+    - container: "Docker Compose (4 profiles ??db, redis, back, front)"
     - registry: "Docker Hub"
     - deploy: "AWS EC2 single instance (docker compose runtime)"
     - ci_cd: "GitHub Actions (build-test -> push-image -> deploy-ec2)"
@@ -49,7 +75,7 @@ business_context:
       description: "User identity and role"
       core_entities: ["User", "UserRole"]
       roles: ["Creator", "Classmate"]
-      auth_mechanism: "Mock — identified by the X-User-Id header. Spring Security is not used."
+      auth_mechanism: "Mock ??identified by the X-User-Id header. Spring Security is not used."
 
   glossary:
     - term: "Creator"
@@ -99,13 +125,13 @@ engineering_principles:
 context_map:
   directories:
     - path: "live-class/src/main/java/com/example/liveclass/domain"
-      contains: "Domain model — Class, Enrollment, User aggregates"
+      contains: "Domain model ??Class, Enrollment, User aggregates"
     - path: "live-class/src/main/java/com/example/liveclass/web"
       contains: "REST controllers, DTOs, exception handlers"
     - path: "live-class/src/main/java/com/example/liveclass/config"
       contains: "Spring Boot configuration (OpenAPI, Redis, Lua RedisScript, Cache, WebMvc, Quartz)"
     - path: "live-class/src/main/resources"
-      contains: "application.yaml — per-profile config. Secrets are injected via env vars."
+      contains: "application.yaml ??per-profile config. Secrets are injected via env vars."
     - path: "live-class/src/test/java"
       contains: "Unit, integration, and concurrency tests"
     - path: "plan/before"
@@ -119,7 +145,7 @@ context_map:
     - path: ".claude/skills"
       contains: "Six slash commands (agent wrappers)"
     - path: ".claude/templates"
-      contains: "Deliverable templates — DOCS, ARCH, plan, report, CONTRIBUTING, PR, docker-compose, Dockerfile, ci-cd"
+      contains: "Deliverable templates ??DOCS, ARCH, plan, report, CONTRIBUTING, PR, docker-compose, Dockerfile, ci-cd"
 
   request_flow:
     - "POST /api/classes (Creator) -> creates a DRAFT Class"
@@ -139,7 +165,7 @@ context_map:
     - service: "Google AI Studio (Gemini API)"
       purpose: "Automated PR code review (gemini-2.5-flash, advisory)"
     - service: "Quartz Scheduler (in-memory JobStore, Asia/Seoul timezone)"
-      purpose: "Class auto-close — transitions OPEN -> CLOSED when endDate passes. Assumes a single EC2 host; switch to a JDBC JobStore when scaling to multiple instances."
+      purpose: "Class auto-close ??transitions OPEN -> CLOSED when endDate passes. Assumes a single EC2 host; switch to a JDBC JobStore when scaling to multiple instances."
 
 constraints_and_rules:
   strictly_prohibited:
@@ -201,7 +227,7 @@ automation_pipeline:
     - "docs/architecture/automation-pipeline-workflows.md"
 
 metadata:
-  last_indexed: "2026-05-15"
+  last_indexed: "2026-05-16"
   index_author: "corinB <gkdisrha2020@gmail.com>"
   primary_branch: "main"
   related_docs:
@@ -211,7 +237,6 @@ metadata:
       description: "Concurrency design (472 lines)"
     - path: "ORCHESTRATION.md"
       description: "Multi-agent pipeline policy (human-driven 6 agents + automation 2 agents)"
-    - path: "AGENTS-SKILLS-HARNESS.md"
       description: "3-pillar 1-page hub (details in docs/agents/* and docs/harness/*)"
     - path: "docs/agents/agents.md"
       description: "Catalog of 8 internal subagents plus the external Codex delegation"
@@ -239,5 +264,5 @@ metadata:
       description: "(to be written on day 5) Submission README"
   pipeline_state_files:
     - "plan/before/*.md  # pending tasks"
-    - "plan/after/*.md   # completed tasks"
-    - "reports/*.md      # per-agent end-of-run reports"
+    - "wiki-src/plan-after/*.md  # completed tasks (Wiki staging area)"
+    - "wiki-src/ko/reports/*.md  # per-agent end-of-run reports (Korean)"
