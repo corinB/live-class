@@ -24,19 +24,21 @@ jobs:
       - name: Checkout source repo
         uses: actions/checkout@v4
 
-      - name: Clone wiki repo
+      - name: Clone wiki repo (master branch)
         run: |
-          git clone \
+          git clone -b master \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/corinB/live-class.wiki.git" \
-            wiki-clone
+            "$RUNNER_TEMP/wiki-clone"
 
       - name: Mirror wiki-src/ into wiki clone
         run: |
-          rsync -a --delete wiki-src/ wiki-clone/
+          rsync -a --delete \
+            --exclude='.git' \
+            wiki-src/ "$RUNNER_TEMP/wiki-clone/"
 
       - name: Commit and push to wiki
-        working-directory: wiki-clone
         run: |
+          cd "$RUNNER_TEMP/wiki-clone"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -44,5 +46,5 @@ jobs:
             echo "No changes to sync."
           else
             git commit -m "chore(wiki): sync from wiki-src @ ${{ github.sha }}"
-            git push
+            git push origin HEAD:master
           fi
