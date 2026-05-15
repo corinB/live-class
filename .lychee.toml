@@ -1,6 +1,6 @@
 # lychee link-checker configuration
 # Only checks Wiki URLs and skips all other external URLs to avoid rate-limits.
-[main]
+
 include = [
   "https://github.com/corinB/live-class/wiki/.*",
 ]
@@ -15,5 +15,5 @@ exclude = [
 timeout = 10
 retry_wait_time = 5
 max_retries = 1
-accept = [200, 301, 302]
+accept = ["200", "301", "302"]
 max_concurrency = 4
