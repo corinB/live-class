@@ -6,10 +6,9 @@ include = [
 ]
 
 exclude = [
-  "mailto:.*",
-  "tel:.*",
+  "^mailto:",
+  "^tel:",
   "^#",
-  "https://(?!github\\.com/corinB/live-class/wiki/).*",
 ]
 
 timeout = 10
