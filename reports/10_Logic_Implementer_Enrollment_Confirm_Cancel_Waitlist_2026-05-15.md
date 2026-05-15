@@ -47,11 +47,26 @@ Testcontainers PostgreSQL 16 + Redis 7 사용. 도커 데몬 필요.
 ## 설계 결정 사항
 
 1. **paymentGateway.charge() 위치**: @Transactional 메서드 첫 번째 줄에서 호출. mock이라 실제 외부 I/O 없음 → TX 시작 전 호출 요건은 의미론적으로 충족된다고 수용. 실제 PG 연동 시 TX 외부 호출로 분리 필요.
-2. **보상 Lua 분리 미적용**: task spec §2(선택 항목)에 따라 보상 역전을 두 단순 ZADD 호출로 처리. 두 호출 사이 race 발생 시 reconcile로 복구 가능하다는 트레이드오프 수용.
-3. **cancel 내 OptimisticLockingFailureException 처리**: 동시 cancel이 선 성공 시 idempotent 200 반환. TX 롤백 후 최신 entity 재조회 반환.
+2. **보상 Lua 단일 스크립트화 (HITL retry)**: Gemini P0 지적 수용 — `reverseCancelPromote` 두 분리 `ZADD` 를 `enrollment_reverse_cancel_promote.lua` 단일 원자 호출로 교체. `LuaScriptConfig` 에 `enrollmentReverseCancelPromoteScript` 빈 추가.
+3. **cancel OptimisticLocking 핸들러 강화 (HITL retry)**: Gemini P1 지적 수용 — catch 블록에서 DB 재조회 후 `status == CANCELLED` 확인 후에만 멱등 200 반환.
+
+---
+
+## HITL retry 라운드 (2026-05-15)
+
+PR #54가 Gemini P0/P1 지적으로 closed 후 재open. 4건 수정.
+
+| Fix | 분류 | 내용 |
+|-----|------|------|
+| 1 | P0 | `enrollment_reverse_cancel_promote.lua` 신규 + `EnrollmentMirrorService.reverseCancelPromote` 단일 Lua 호출 리팩토링 |
+| 2 | P1 | `cancel()` `OptimisticLockingFailureException` catch 블록 — 재조회 후 상태 확인 후 조건부 멱등 반환 |
+| 3 | P1 | `EnrollmentCancelCompensationTest` 신규 — DB save 실패 시 ZSET 원상복귀 E2E 검증 |
+| 4 | P0 | `MockUserFilter`, `CurrentUserId` javadoc에 `@deprecated dev-only` 표식 추가 |
 
 ---
 
 ## 다음 세션(task 14)을 위한 참고 사항
 
 `EnrollmentCacheInvalidator` 항목은 Pre-flight 5 결정(Spring Cache 미사용)으로 의도적 미구현이다. `WaitlistPromotedEvent`, `EnrollmentConfirmedEvent`, `EnrollmentCancelledEvent`는 발행만 하고 리스너 없음 — task 14가 알림/통계 리스너를 붙인다면 이 세 이벤트를 구독하면 된다.
+
+`MockUserFilter` 와 `CurrentUserId` 는 `@deprecated` 표식만 추가됐고 실제 구현은 유지됨 — 운영 배포 전 실제 인증 필터로 교체 필요 (DOCS.md §auth 참조).
