@@ -175,10 +175,13 @@ public class EnrollmentApplicationService {
             e.cancel(now);
             enrollmentRepository.save(e);
         } catch (OptimisticLockingFailureException ex) {
-            // Concurrent cancel already succeeded — idempotent 200
+            // Reload to distinguish: concurrent cancel (idempotent 200) vs genuine conflict (re-throw)
             Enrollment refreshed = enrollmentRepository.findById(enrollmentId)
                     .orElseThrow(EnrollmentNotFoundException::new);
-            return EnrollmentResponse.from(refreshed);
+            if (refreshed.getStatus() == EnrollmentStatus.CANCELLED) {
+                return EnrollmentResponse.from(refreshed);
+            }
+            throw ex;
         }
 
         // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled
