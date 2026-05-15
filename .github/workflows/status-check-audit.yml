@@ -1,0 +1,43 @@
+﻿# required status check 와 workflow job 이름 정합성을 CI에서 검증하는 워크플로우
+name: Status Check Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.claude/scripts/audit-status-checks.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-check-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit Required Status Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Run audit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: python3 .claude/scripts/audit-status-checks.py
