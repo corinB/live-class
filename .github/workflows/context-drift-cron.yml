@@ -1,0 +1,69 @@
+﻿# context.yaml drift 를 매일 감시하고 Issue 로 리포트하는 cron 워크플로우
+name: Context Drift Audit (cron)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # daily at UTC 00:00 = KST 09:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: context-drift-cron
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Run audit
+        id: audit
+        run: |
+          set +e
+          python3 .claude/scripts/audit-context-yaml.py > audit-out.txt 2>&1
+          ec=$?
+          echo "exit_code=$ec" >> "$GITHUB_OUTPUT"
+          echo "--- audit output ---"
+          cat audit-out.txt
+          exit 0
+
+      - name: Open or update tracking issue
+        if: steps.audit.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh issue list --label context-drift --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$(printf 'Drift detected at %s.\n\nAudit output:\n```\n%s\n```' "$(date -u +%FT%TZ)" "$(cat audit-out.txt)")"
+          else
+            gh issue create \
+              --title "[context-drift] audit-context-yaml.py reports drift $(date -u +%Y-%m-%d)" \
+              --label "context-drift,chore" \
+              --body "$(printf 'Daily audit detected context.yaml drift.\n\nAudit output:\n```\n%s\n```\n\nResolve by running `bash .claude/scripts/refresh-context-yaml.sh` and committing the result. This issue will auto-close on next clean run.' "$(cat audit-out.txt)")"
+          fi
+
+      - name: Close tracking issue on clean run
+        if: steps.audit.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh issue list --label context-drift --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Audit clean at $(date -u +%FT%TZ). Auto-closing."
+            gh issue close "$existing"
+          fi
