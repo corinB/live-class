@@ -1,0 +1,76 @@
+# 짝 중 한쪽만 변경된 PR 을 막는 CI 가드
+name: wiki-pair-sync
+
+on:
+  pull_request:
+    paths:
+      - "ARCHITECTURE.md"
+      - "DOCS.md"
+      - "CONTRIBUTING.md"
+      - "ORCHESTRATION.md"
+      - "wiki-src/ko/architecture-detail.md"
+      - "wiki-src/ko/docs-detail.md"
+      - "wiki-src/ko/contributing-detail.md"
+      - "wiki-src/ko/orchestration-detail.md"
+
+permissions:
+  contents: read
+
+jobs:
+  wiki-pair-sync:
+    name: wiki-pair-sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check root-doc ↔ wiki-src pair sync
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+
+          ROOT_DOCS=("ARCHITECTURE.md" "DOCS.md" "CONTRIBUTING.md" "ORCHESTRATION.md")
+          WIKI_DETAILS=("wiki-src/ko/architecture-detail.md" "wiki-src/ko/docs-detail.md" "wiki-src/ko/contributing-detail.md" "wiki-src/ko/orchestration-detail.md")
+
+          failed=0
+          for i in "${!ROOT_DOCS[@]}"; do
+            root="${ROOT_DOCS[$i]}"
+            wiki="${WIKI_DETAILS[$i]}"
+
+            root_changed=0
+            wiki_changed=0
+
+            if echo "$changed" | grep -qF "$root"; then
+              root_changed=1
+            fi
+            if echo "$changed" | grep -qF "$wiki"; then
+              wiki_changed=1
+            fi
+
+            if [ "$root_changed" -ne "$wiki_changed" ]; then
+              if [ "$root_changed" -eq 1 ]; then
+                echo "::error::pair-skew: ${root} changed but ${wiki} was not changed in this PR."
+              else
+                echo "::error::pair-skew: ${wiki} changed but ${root} was not changed in this PR."
+              fi
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -eq 1 ]; then
+            echo ""
+            echo "Root docs and their wiki-src/ko/*-detail.md counterparts must be updated together."
+            echo "Pairs:"
+            for i in "${!ROOT_DOCS[@]}"; do
+              echo "  ${ROOT_DOCS[$i]} <-> ${WIKI_DETAILS[$i]}"
+            done
+            exit 1
+          fi
+
+          echo "All root-doc/wiki pairs are in sync."
