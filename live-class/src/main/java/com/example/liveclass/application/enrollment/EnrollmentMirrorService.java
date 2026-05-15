@@ -75,11 +75,37 @@ public class EnrollmentMirrorService {
      * Calls enrollment_cancel_promote.lua — atomically removes the cancelled member and
      * promotes the oldest WAITLISTED member.
      * Returns null if no promotion occurred, or a two-element list [promotedClassmateId, scoreNanos].
-     * Full implementation in task 10.
+     * Throws MirrorUnavailableException if Redis is unreachable.
      */
-    @SuppressWarnings("rawtypes")
+    @SuppressWarnings({"rawtypes", "unchecked"})
     public List<String> cancelAndMaybePromote(UUID classId, UUID classmateId, boolean wasConfirmed) {
-        throw new UnsupportedOperationException("implemented in task 10");
+        try {
+            return (List<String>) redisTemplate.execute(
+                    enrollmentCancelPromoteScript,
+                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    classmateId.toString(),
+                    wasConfirmed ? "1" : "0");
+        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
+            throw new MirrorUnavailableException("Redis unavailable during cancel promote", ex);
+        }
+    }
+
+    /**
+     * Reverse compensation after a failed promoted-enrollment DB UPDATE.
+     * Re-adds the canceller to enrolled and re-adds the promoted member to waitlist.
+     * Two separate calls — a race between them is accepted as a reconcile-recoverable edge case
+     * (ARCHITECTURE §6.3 tradeoff note).
+     */
+    public void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted, long promotedScore) {
+        try {
+            // Restore canceller to enrolled (use current time nanos as score — best effort)
+            long cancellerScore = System.nanoTime();
+            redisTemplate.opsForZSet().add("enrolled:" + classId, canceller.toString(), cancellerScore);
+            // Restore promoted back to waitlist
+            redisTemplate.opsForZSet().add("waitlist:" + classId, promoted.toString(), promotedScore);
+        } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
+            throw new MirrorUnavailableException("Redis unavailable during reverse cancel promote", ex);
+        }
     }
 
     /**
