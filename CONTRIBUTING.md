@@ -12,7 +12,7 @@ This document summarizes contribution conventions. Full Korean detail at the lin
 - Direct push to `main` is forbidden.
 
 **Branch naming**: `<type>/task-NN-<slug>`
-- `NN` must match the two-digit prefix of `plan/before/NN_*.md`.
+- `NN` must match the two-digit prefix of `wiki-src/plan-before/NN_*.md`.
 - `slug` is lowercase kebab-case.
 
 **Allowed types**: `feature` | `fix` | `refactor` | `perf` | `test` | `docs` | `chore` | `ci`
@@ -27,7 +27,7 @@ Format: `<type>(<scope>): <subject>`
 
 - Subject: ≤50 chars, English imperative, no trailing period.
 - Body: Korean allowed.
-- Footer (required): `Refs: plan/before/NN_<Role>_<Slug>.md`
+- Footer (required): `Refs: wiki-src/plan-before/NN_<Role>_<Slug>.md`
 
 **Allowed types**: `feat` | `fix` | `refactor` | `perf` | `test` | `docs` | `build` | `ci` | `chore` | `style` | `revert`
 
@@ -37,7 +37,7 @@ Format: `<type>(<scope>): <subject>`
 
 ## PR Process
 
-1. Confirm `plan/before/NN_*.md` task file.
+1. Confirm `wiki-src/plan-before/NN_*.md` task file.
 2. Branch from `main`: `feature/task-NN-<slug>`.
 3. Commit following Conventional Commits.
 4. `./gradlew test` must pass.
@@ -56,7 +56,7 @@ Branch protection requires `ci.yml`'s `build-test` status check to pass before m
 
 ## Automation Pipeline PRs
 
-Issues labeled `maestro:auto` → Maestro creates `plan/before/NN_*.md` → Worker opens PR labeled `automation:worker`.
+Issues labeled `maestro:auto` → Maestro creates `wiki-src/plan-before/NN_*.md` → Worker opens PR labeled `automation:worker`.
 
 - Gatekeeper auto-merges when CI green + Gemini P0=0, P1=0.
 - Auto-rebase bot rebases open automation PRs when main advances.
