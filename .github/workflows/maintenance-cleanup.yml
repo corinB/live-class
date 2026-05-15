@@ -1,0 +1,163 @@
+# 머지된 worktree/untracked 잔재를 주기적으로 점검하고 dry-run 결과를 코멘트하는 워크플로우
+name: Maintenance Cleanup
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 'Set to true to actually delete (default: dry-run only)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: maintenance-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'issues' || github.event.label.name == 'maestro:auto')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect stale merged-PR head branches
+        id: stale_branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr list --state merged --limit 100 \
+            --json number,headRefName,mergedAt \
+            --jq '.[] | select(.mergedAt != null) | "\(.number)\t\(.headRefName)"' \
+            > prs.tsv || true
+          existing=$(git ls-remote --heads origin | awk '{print $2}' | sed 's|refs/heads/||')
+          stale=()
+          while IFS=$'\t' read -r num branch; do
+            if echo "$existing" | grep -qFx "$branch"; then
+              stale+=("PR #${num} -> origin/${branch}")
+            fi
+          done < prs.tsv
+          {
+            echo "stale_count=${#stale[@]}"
+            echo "stale_list<<__EOF__"
+            for s in "${stale[@]}"; do echo "$s"; done
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run cleanup scripts
+        id: scripts_report
+        run: |
+          set -euo pipefail
+          REPORT="${RUNNER_TEMP}/cleanup-report.md"
+          EXECUTE="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.execute }}" = "true" ]; then
+            EXECUTE="true"
+          fi
+          {
+            echo "## Maintenance Cleanup Report"
+            echo "**Triggered by**: \`${{ github.event_name }}\`"
+            echo "**Run at**: $(date -u +%FT%TZ)"
+            echo ""
+          } > "$REPORT"
+          if [ -f ".claude/scripts/cleanup-worktrees.sh" ]; then
+            echo "### cleanup-worktrees.sh" >> "$REPORT"
+            if [ "$EXECUTE" = "true" ]; then
+              bash .claude/scripts/cleanup-worktrees.sh --execute 2>&1 >> "$REPORT" || true
+            else
+              bash .claude/scripts/cleanup-worktrees.sh --dry-run 2>&1 >> "$REPORT" || true
+            fi
+          else
+            printf "### cleanup-worktrees.sh\n_Script not present -- skipped._\n" >> "$REPORT"
+          fi
+          echo "" >> "$REPORT"
+          if [ -f ".claude/scripts/cleanup-untracked-leftovers.sh" ]; then
+            echo "### cleanup-untracked-leftovers.sh" >> "$REPORT"
+            if [ "$EXECUTE" = "true" ]; then
+              bash .claude/scripts/cleanup-untracked-leftovers.sh --execute 2>&1 >> "$REPORT" || true
+            else
+              bash .claude/scripts/cleanup-untracked-leftovers.sh --dry-run 2>&1 >> "$REPORT" || true
+            fi
+          else
+            printf "### cleanup-untracked-leftovers.sh\n_Script not present -- skipped._\n" >> "$REPORT"
+          fi
+
+      - name: Append stale-branch summary to report
+        env:
+          STALE_COUNT: ${{ steps.stale_branches.outputs.stale_count }}
+          STALE_LIST: ${{ steps.stale_branches.outputs.stale_list }}
+        run: |
+          set -euo pipefail
+          REPORT="${RUNNER_TEMP}/cleanup-report.md"
+          {
+            echo ""
+            echo "### Stale merged-PR head branches"
+          } >> "$REPORT"
+          if [ "$STALE_COUNT" = "0" ]; then
+            echo "None detected." >> "$REPORT"
+          else
+            {
+              echo "Found **${STALE_COUNT}** stale branch(es):"
+              echo ""
+              echo '```'
+              echo "$STALE_LIST"
+              echo '```'
+              echo ""
+              echo '_Run `git push origin --delete <branch>` or enable **Automatically delete head branches** in repo settings._'
+            } >> "$REPORT"
+          fi
+
+      - name: Post or update sticky comment on chore tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- maintenance-cleanup-sticky -->"
+          REPORT="${RUNNER_TEMP}/cleanup-report.md"
+          existing_issue=$(gh issue list --label chore --state open \
+            --json number --limit 1 \
+            --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$existing_issue" ] && [ "$existing_issue" != "null" ]; then
+            existing_comment=$(gh api \
+              "repos/${{ github.repository }}/issues/${existing_issue}/comments" \
+              --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" \
+              | head -1 2>/dev/null || echo "")
+            printf '%s\n' "$MARKER" > "${RUNNER_TEMP}/full-body.md"
+            cat "$REPORT" >> "${RUNNER_TEMP}/full-body.md"
+            if [ -n "$existing_comment" ]; then
+              gh api -X PATCH \
+                "repos/${{ github.repository }}/issues/comments/${existing_comment}" \
+                -f body="$(cat "${RUNNER_TEMP}/full-body.md")"
+              echo "Updated sticky comment #${existing_comment} on issue #${existing_issue}."
+            else
+              gh issue comment "$existing_issue" --body-file "${RUNNER_TEMP}/full-body.md"
+              echo "Added new sticky comment on issue #${existing_issue}."
+            fi
+          else
+            gh issue create \
+              --title "[maintenance-cleanup] cleanup report $(date -u +%F)" \
+              --label "chore,maintenance-cleanup" \
+              --body-file "$REPORT"
+            echo "Created new tracking issue (no open chore issue found)."
+          fi
+
+      - name: Clean run note
+        if: steps.stale_branches.outputs.stale_count == '0'
+        run: echo "No stale branches detected at $(date -u +%FT%TZ)."
