@@ -104,10 +104,7 @@ jobs:
             --rawfile diff "$DIFF_FILE" \
             '{
               system_instruction: { parts: [{ text: $sys }] },
-              contents: [{ role: "user", parts: [{ text:
-                "PR Title: " + $title + "\n\nPR Description:\n" + $body +
-                "\n\nDiff (truncated=" + $truncated + "):\n```diff\n" + $diff + "\n```"
-              }] }],
+              contents: [{ role: "user", parts: [{ text: "PR Title: \($title)\n\nPR Description:\n\($body)\n\nDiff (truncated=\($truncated)):\n```diff\n\($diff)\n```" }] }],
               generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
             }' > "$BODY_FILE"
 
