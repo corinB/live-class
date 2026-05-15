@@ -50,11 +50,12 @@ jobs:
             DIFF="$RAW_DIFF"
             TRUNCATED=false
           fi
-          {
-            echo 'diff<<__DIFF_EOF__'
-            printf '%s\n' "$DIFF"
-            echo '__DIFF_EOF__'
-          } >> "$GITHUB_OUTPUT"
+          # DIFF 본문을 GITHUB_OUTPUT 으로 보내면 다음 스텝이 env 로 받게 되고 800KB 가
+          # Linux ARG_MAX(~128KB) 를 초과해 bash spawn 단계에서 'Argument list too long'
+          # 으로 실패한다. 파일로 떨어뜨려 outputs 에는 경로만 전달.
+          DIFF_FILE="$RUNNER_TEMP/pr_diff.txt"
+          printf '%s' "$DIFF" > "$DIFF_FILE"
+          echo "diff_file=$DIFF_FILE" >> "$GITHUB_OUTPUT"
           echo "truncated=$TRUNCATED" >> "$GITHUB_OUTPUT"
           echo "total_chars=$TOTAL_CHARS" >> "$GITHUB_OUTPUT"
           echo "cutoff_chars=$CUTOFF_CHARS" >> "$GITHUB_OUTPUT"
@@ -65,7 +66,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-          DIFF: ${{ steps.diff.outputs.diff }}
+          DIFF_FILE: ${{ steps.diff.outputs.diff_file }}
           TRUNCATED: ${{ steps.diff.outputs.truncated }}
         run: |
           set -euo pipefail
@@ -89,19 +90,24 @@ jobs:
           EOF
           )
 
-          USER_PROMPT="PR Title: $PR_TITLE\n\nPR Description:\n$PR_BODY\n\nDiff (truncated=$TRUNCATED):\n\`\`\`diff\n$DIFF\n\`\`\`"
-
           # 800k 자 cutoff에서 REQUEST_BODY를 -d 인자로 직접 넘기면 OS ARG_MAX (Linux 보통 ~128KB)에
           # 막혀 `/usr/bin/curl: Argument list too long`이 발생한다. 임시 파일에 바디를 쓰고
           # --data-binary @file 로 전달해 인자 길이 제약을 회피한다.
+          # DIFF 본문도 jq --rawfile 로 직접 읽어 env-var 경로의 ARG_MAX 제약을 피한다.
           BODY_FILE="$(mktemp)"
           trap 'rm -f "$BODY_FILE"' EXIT
           jq -n \
             --arg sys "$SYSTEM_PROMPT" \
-            --arg user "$USER_PROMPT" \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg truncated "$TRUNCATED" \
+            --rawfile diff "$DIFF_FILE" \
             '{
               system_instruction: { parts: [{ text: $sys }] },
-              contents: [{ role: "user", parts: [{ text: $user }] }],
+              contents: [{ role: "user", parts: [{ text:
+                "PR Title: " + $title + "\n\nPR Description:\n" + $body +
+                "\n\nDiff (truncated=" + $truncated + "):\n```diff\n" + $diff + "\n```"
+              }] }],
               generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
             }' > "$BODY_FILE"
 
