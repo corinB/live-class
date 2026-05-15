@@ -8,6 +8,7 @@ public final class PostgresTestContainer {
 
     public static final PostgreSQLContainer<?> INSTANCE =
             new PostgreSQLContainer<>("postgres:16")
+                    .withCommand("postgres", "-c", "max_connections=300")
                     .withReuse(true);
 
     static {
@@ -25,5 +26,8 @@ public final class PostgresTestContainer {
         registry.add("spring.jpa.properties.hibernate.dialect",
                 () -> "org.hibernate.dialect.PostgreSQLDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        // Shrink HikariPool so 10+ shared ApplicationContexts don't exhaust the container.
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "5");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "0");
     }
 }

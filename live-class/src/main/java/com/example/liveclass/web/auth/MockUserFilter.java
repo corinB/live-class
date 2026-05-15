@@ -16,6 +16,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * @deprecated dev-only mock authentication. Do NOT enable in production — see DOCS.md §auth.
+ */
 public class MockUserFilter extends OncePerRequestFilter {
 
     private static final String HEADER_NAME = "X-User-Id";
