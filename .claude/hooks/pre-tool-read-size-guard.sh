@@ -72,6 +72,11 @@ if [ -n "$offset_val" ] || [ -n "$limit_val" ]; then
   exit 0
 fi
 
+# wiki-src/** 경로는 한국어 상세 페이지가 설계상 100KB를 초과할 수 있으므로 임계값을 300KB로 올린다.
+case "$file_path" in
+  */wiki-src/*) THRESHOLD_BYTES=307200 ;;
+esac
+
 file_size=$(wc -c < "$file_path" 2>/dev/null || echo 0)
 file_size=${file_size//[[:space:]]/}
 
