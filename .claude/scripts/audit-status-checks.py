@@ -17,6 +17,7 @@ Exit codes:
       PR path filter that could leave the check unproduced (FAIL)
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -149,13 +150,34 @@ def collect_job_contexts(workflows_dir: Path) -> dict[str, dict]:
     return mapping
 
 
-def main() -> int:
-    # Determine repo from git remote or environment
-    repo = os.environ.get("GITHUB_REPOSITORY", "corinB/live-class")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Audit GitHub branch protection required contexts vs workflow job names."
+    )
+    parser.add_argument(
+        "--repo",
+        default=os.environ.get("GITHUB_REPOSITORY"),
+        help="owner/name (defaults to GITHUB_REPOSITORY env var; explicit fail if neither set)",
+    )
+    parser.add_argument(
+        "--workflows-dir",
+        default=str(Path(os.environ.get("GITHUB_WORKSPACE", ".")) / ".github" / "workflows"),
+        help="path to .github/workflows directory (defaults under GITHUB_WORKSPACE or cwd)",
+    )
+    return parser.parse_args(argv)
 
-    # Locate .github/workflows relative to repo root
-    repo_root = Path(os.environ.get("GITHUB_WORKSPACE", "."))
-    workflows_dir = repo_root / ".github" / "workflows"
+
+def main() -> int:
+    args = parse_args()
+    repo = args.repo
+    if not repo:
+        print(
+            "Error: --repo not provided and GITHUB_REPOSITORY env var is not set. "
+            "Pass --repo owner/name or set GITHUB_REPOSITORY.",
+            file=sys.stderr,
+        )
+        return 1
+    workflows_dir = Path(args.workflows_dir)
 
     print("=== Required status checks audit ===")
 
