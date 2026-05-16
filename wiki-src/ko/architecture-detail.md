@@ -3,7 +3,7 @@
 status: draft
 owner: live-class team
 created: 2026-05-11
-updated: 2026-05-12
+updated: 2026-05-16
 companion: DOCS.md
 ---
 
@@ -219,6 +219,7 @@ sequenceDiagram
     participant C as Client
     participant API as EnrollmentController
     participant App as EnrollmentApplicationService
+    participant Lock as ClassLockService (Redis SET NX PX)
     participant Lua as Redis (enrollment_apply.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
@@ -226,6 +227,9 @@ sequenceDiagram
 
     C->>API: POST /enrollments {classId} (X-User-Id)
     API->>App: apply(classId, classmateId)
+
+    App->>Lock: executeWithLock(classId, body)
+    Note right of Lock: SET NX PX lock:reconcile:{c} token TTL=30s<br/>충돌 시 ClassLockBusyException -> 503 CLASS_LOCK_BUSY<br/>(finally: 안전 해제 Lua, 자기 토큰일 때만 DEL)
 
     App->>Lua: EVALSHA enrollment_apply.lua\nKEYS=[enrolled:{c}, waitlist:{c}, class:status:{c}]\nARGV=[capacity, classmateId, appliedAtNanos]
     Note right of Lua: GET class:status -> "OPEN" 검사<br/>ZSCORE enrolled/waitlist -> 중복 검사<br/>ZCARD enrolled < capacity ?<br/>enrolled ZADD : waitlist ZADD
@@ -268,10 +272,11 @@ sequenceDiagram
 
 핵심 포인트.
 
-- (3) Lua 한 번의 호출에 §2.1 의 race 결정과 §2.4 의 status 검사가 모두 들어 있다. application service 는 Lua 결정을 받아 DB 영속화만 담당.
-- (10–11) `CLASS_NOT_FOUND` 는 `class:status` mirror 미존재 케이스. application service 가 DB 로 fallback 후 mirror 채움 (`opsForValue().set`) + Lua 재시도. mirror TTL 300s 만료 직후에만 발생.
-- (15) Lua 성공 후 DB INSERT 실패 시 즉시 보상 Lua 호출. 보상 Lua 자체가 또 실패하면 부팅 시 reconcile 로 정정.
-- (16–17) AFTER_COMMIT 단계에서 도메인 이벤트만 발행. **Spring Cache 미사용 (Pre-flight 5) 이므로 cache evict 핸들러 없음**. ZSET 미러는 Lua 가 이미 갱신해두었으므로 별도 처리 불요.
+- **ClassLockService outer-wrap** — Lua 호출 직전 `lock:reconcile:{classId}` SET NX PX 로 동일 강의의 apply/cancel/reconcile 를 직렬화. 충돌 시 `ClassLockBusyException` 던지고 `GlobalExceptionHandler` 가 503 (`errorCode=CLASS_LOCK_BUSY`) 로 매핑. TTL 30s, finally 단계에서 자기 토큰 검증 후에만 DEL (`SAFE_UNLOCK` Lua). reconcile 측은 같은 키를 `tryRun` 으로 잡아 충돌 시 false 리턴.
+- Lua 한 번의 호출에 §2.1 race 결정과 §2.4 status 검사가 모두 들어 있다. application service 는 Lua 결정을 받아 DB 영속화만 담당.
+- `CLASS_NOT_FOUND` 는 `class:status` mirror 미존재 케이스. application service 가 DB 로 fallback 후 mirror 채움 (`opsForValue().set`) + Lua 재시도. mirror TTL 300s 만료 직후에만 발생.
+- Lua 성공 후 DB INSERT 실패 시 즉시 보상 Lua 호출. 보상 Lua 자체가 또 실패하면 부팅 시 reconcile 로 정정.
+- AFTER_COMMIT 단계에서 도메인 이벤트 발행 → `EnrollmentEventListener` 가 `onCreated` hook 수신 (현재 INFO 로깅, 향후 알림 / 메트릭 / 외부 큐 발행 hook 자리). **Spring Cache 미사용 (Pre-flight 5) 이므로 cache evict 핸들러 없음**. ZSET 미러는 Lua 가 이미 갱신해두었으므로 별도 처리 불요.
 
 ### 6.2 `POST /enrollments/{id}/confirm-payment` — mock 결제
 
@@ -321,12 +326,16 @@ sequenceDiagram
     participant C as Client
     participant API as EnrollmentController
     participant App as EnrollmentApplicationService
+    participant Lock as ClassLockService (Redis SET NX PX)
     participant Lua as Redis (enrollment_cancel_promote.lua)
     participant DB as PostgreSQL
     participant Bus as ApplicationEventPublisher
 
     C->>API: DELETE /enrollments/{id}
     API->>App: cancel(enrollmentId, classmateId, now)
+
+    App->>Lock: executeWithLock(classId, body)
+    Note right of Lock: 같은 lock:reconcile:{c} 키<br/>충돌 시 ClassLockBusyException -> 503
 
     rect rgb(240, 240, 240)
     note over App,DB: TX begin
@@ -336,7 +345,8 @@ sequenceDiagram
         App-->>API: 403
     else status == CANCELLED
         App-->>API: 200 (멱등)
-    else status == CONFIRMED && now > paidAt + 7d
+    else Enrollment.cancel(now) 도메인 검증 실패
+        Note right of App: domain method 내부에서<br/>CONFIRMED 면 paidAt + 7d 검사,<br/>이미 CANCELLED 면 idempotent 처리.<br/>7d 초과 시 DomainException -> 422
         App-->>API: 422 OutsideCancellationWindow
     else 취소 가능
         App->>DB: UPDATE enrollment SET status='CANCELLED', cancelledAt=now, version=version+1
@@ -369,10 +379,12 @@ sequenceDiagram
 
 핵심 포인트.
 
-- (4) DB SELECT 는 `FOR UPDATE` 없이 `@Version` 만 본다. 동시 cancel 두 건은 한 건만 UPDATE rows=1, 다른 한 건은 rows=0 → 멱등 200.
-- (10) 단일 Lua 호출이 `ZREM enrolled` + (`ZPOPMIN waitlist` + `ZADD enrolled`) 를 원자 swap. 두 ZSET 사이 정합성 윈도우 0.
-- (12) 승격된 enrollment 의 DB UPDATE 실패 시 보상 Lua 가 ZSET 을 반대로 되돌린다.
-- (16–17) 이벤트 발행은 모두 AFTER_COMMIT.
+- **ClassLockService outer-wrap** — apply 와 동일 키 (`lock:reconcile:{classId}`) 를 잡아 같은 강의의 신청·취소·reconcile 가 동시에 ZSET 을 건드리는 race 를 닫는다. 충돌 시 즉시 503 (`CLASS_LOCK_BUSY`).
+- **7일 창 검증 위치는 도메인 메서드** — `Enrollment.cancel(now)` 내부에서 `CONFIRMED` 분기일 때 `paidAt + 7d` 비교 + 이미 `CANCELLED` 인 경우 idempotent 분기까지 처리. application service 는 검증 책임을 도메인에 위임하고 결과(예외 / 통과)만 받는다.
+- DB SELECT 는 `FOR UPDATE` 없이 `@Version` 만 본다. 동시 cancel 두 건은 한 건만 UPDATE rows=1, 다른 한 건은 rows=0 → 멱등 200.
+- 단일 Lua 호출이 `ZREM enrolled` + (`ZPOPMIN waitlist` + `ZADD enrolled`) 를 원자 swap. 두 ZSET 사이 정합성 윈도우 0.
+- 승격된 enrollment 의 DB UPDATE 실패 시 보상 Lua 가 ZSET 을 반대로 되돌린다.
+- 이벤트 발행은 모두 AFTER_COMMIT. `EnrollmentEventListener` 가 `onCancelled` + (promoted 발생 시) `onWaitlistPromoted` hook 으로 수신.
 
 ---
 
@@ -382,6 +394,18 @@ sequenceDiagram
 
 - **영향** — 모든 신청·취소 API 가 즉시 실패한다. 강의 상세 조회는 캐시 미스로 DB 직행.
 - **정책 — Fail-closed**. Lua 호출 실패 시 application service 는 **즉시 503** 을 반환한다. DB 만으로 결정하는 fallback 경로를 두지 않는다.
+- **GlobalExceptionHandler 매핑** — Redis 한정 예외 두 가지만 좁게 503 으로 변환 (DB 장애는 catch-all 500 으로 두어 운영 진단 가능).
+
+| 예외 | 출처 | 매핑 | errorCode | 검증 |
+|---|---|---|---|---|
+| `RedisConnectionFailureException` | Spring Data Redis | 503 | `MIRROR_UNAVAILABLE` | `RedisDisconnectFailClosedTest`, `GlobalExceptionHandlerTest` |
+| `QueryTimeoutException` | Spring Data Redis (Lettuce 타임아웃) | 503 | `MIRROR_UNAVAILABLE` | `GlobalExceptionHandlerTest` |
+| `MirrorUnavailableException` | `EnrollmentMirrorService` 자체 catch | 503 | `MIRROR_UNAVAILABLE` | `EnrollmentControllerSliceTest` |
+| `ClassLockBusyException` | `ClassLockService.executeWithLock` | 503 | `CLASS_LOCK_BUSY` | `GlobalExceptionHandlerTest` |
+| `OptimisticLockingFailureException` | JPA `@Version` 충돌 | 409 | `OPTIMISTIC_LOCK_FAILURE` | `ClassOptimisticLockTest` |
+
+§2.1·§2.2·§2.3·§2.4 의 race-critical 시나리오는 각각 `LastSeatRaceConcurrencyTest` / `WaitlistPromotionConcurrencyTest` + `EnrollmentCancelCompensationTest` + `LuaCompensationAtomicityTest` / `CancelDoubleClickConcurrencyTest` / `ClassOptimisticLockTest` 로 회귀 보호한다. Reconcile ↔ enrollment 동시 race 는 `ReconcileServiceIntegrationTest` + `ReconcileTest` 가 본 lock 키 공유 동작을 검증.
+
 - **복구** — Redis 가 다시 살아나면 §7.7 의 reconcile 절차가 부팅 시점에 ZSET 을 재구성한다.
 
 ### 7.2 PostgreSQL 연결 끊김

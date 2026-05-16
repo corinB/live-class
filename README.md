@@ -47,6 +47,15 @@ bootRun 이 뜨면 `http://localhost:8080/swagger-ui.html` 에서 API 를 직접
 
 전체 스택(백엔드 + Swagger 정적 프록시까지) 컨테이너로 띄우려면 `docker compose --profile db --profile redis --profile back --profile front up -d`.
 
+**격리 부하 테스트 환경**. 운영 사양에서 한계 동작을 검증하기 위한 별도 compose 파일 2종이 루트에 있다. 기본 `docker-compose.yml` 과 네트워크·볼륨 분리.
+
+| 파일 | 가정 인스턴스 | 용도 |
+|---|---|---|
+| `docker-compose.t3-small.yml` | AWS EC2 t3.small (2 vCPU / 2 GB) | 일반 운영 사양 부하 시뮬레이션. `scripts/load-test/open-run.py` 와 함께 사용. |
+| `docker-compose.t3-nano.yml` | AWS EC2 t3.nano (2 vCPU / 0.5 GB) | 메모리 압박 한계 시나리오. Redis 200ms timeout / fail-closed 자체 방어막 검증용. |
+
+기동 예 — `docker compose -f docker-compose.t3-small.yml up -d`. 결과 보고서는 `reports/load-test/` 디렉토리. 상세 부하 테스트 절차는 `scripts/load-test/README.md` 참조.
+
 > **주의 — 한글 경로.** Spring Boot 가 비 ASCII cwd 에서 `ClassNotFoundException` 으로 죽는 회귀가 알려져 있다. 한글 경로 저장소에서는 ASCII worktree(`/c/work/p-ascii` 등) 를 만들어 거기서 `./gradlew` 를 실행하길 권장. 자세한 가드: `.claude/hooks/pre-bash-detect-korean-cwd.sh`.
 
 ---

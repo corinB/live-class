@@ -56,7 +56,7 @@ Key fields: `id (UserId)`, `role (CREATOR|CLASSMATE)`, `name`.
 | `EnrollmentCancelledEvent` | `cancel()` |
 | `WaitlistPromotedEvent` | `promoteFromWaitlist()` |
 
-Events are published via Spring `ApplicationEventPublisher` in the AFTER_COMMIT phase.
+Events are published via Spring `ApplicationEventPublisher` in the AFTER_COMMIT phase. `EnrollmentEventListener` subscribes to all four Enrollment events (`onCreated`, `onConfirmed`, `onCancelled`, `onWaitlistPromoted`) as the side-effect hook seat (notification / metrics / external queue land here in later cycles; today it logs at INFO).
 
 `ClassClosedEvent` → bulk-cancel all WAITLISTED enrollments for that class.
 `EnrollmentCancelledEvent` (previousStatus=CONFIRMED) → promote oldest WAITLISTED to PENDING.

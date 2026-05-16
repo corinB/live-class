@@ -3,7 +3,7 @@
 status: draft
 owner: live-class team
 created: 2026-05-11
-updated: 2026-05-12
+updated: 2026-05-16
 ---
 
 # DOCS.md — Live Class Domain Design
@@ -21,8 +21,6 @@ updated: 2026-05-12
    - 4.1 [Class Lifecycle](#class-lifecycle)
    - 4.2 [Enrollment Lifecycle](#enrollment-lifecycle)
 5. [Domain Events](#domain-events)
-   - 5.1 [Event Catalog](#event-catalog)
-   - 5.2 [Event Flow](#event-flow)
 6. [Invariants](#invariants)
 7. [Glossary](#glossary)
 
@@ -211,28 +209,18 @@ stateDiagram-v2
 
 ## Domain Events
 
-### Event Catalog
+이벤트명은 과거형이며 페이로드는 record 형태로 정의한다. 발행은 Spring `ApplicationEventPublisher` + `@TransactionalEventListener(AFTER_COMMIT)` 흐름을 전제한다. 본 시스템의 모든 enrollment 도메인 이벤트는 `application.enrollment.EnrollmentEventListener` 가 4개 hook (`onCreated` / `onConfirmed` / `onCancelled` / `onWaitlistPromoted`) 로 수신하며, 현 단계는 INFO 로깅 stub — 향후 알림 / 메트릭 / 외부 큐 발행 hook 자리.
 
-이벤트명은 과거형이며 페이로드는 record 형태로 정의한다. 발행은 Spring `ApplicationEventPublisher`를 전제한다.
+### Event Catalog (Producer · Payload · Trigger · Consumer · 후속 액션)
 
-| Event | Payload Fields | Trigger |
-|-------|---------------|---------|
-| `ClassOpenedEvent` | `classId: ClassId`, `creatorId: UserId`, `occurredAt: Instant` | `Class.open()` 성공 직후. |
-| `ClassClosedEvent` | `classId: ClassId`, `creatorId: UserId`, `occurredAt: Instant` | `Class.close()` 성공 직후. |
-| `EnrollmentCreatedEvent` | `enrollmentId`, `classId`, `classmateId`, `status (PENDING\|WAITLISTED)`, `occurredAt` | `Enrollment.apply()` 또는 `waitlist()` 성공 시. |
-| `EnrollmentConfirmedEvent` | `enrollmentId`, `classId`, `classmateId`, `paidAt`, `occurredAt` | `Enrollment.confirm()` 성공 직후. |
-| `EnrollmentCancelledEvent` | `enrollmentId`, `classId`, `classmateId`, `previousStatus`, `cancelledAt`, `occurredAt` | `Enrollment.cancel()` 성공 직후. |
-| `WaitlistPromotedEvent` | `enrollmentId`, `classId`, `classmateId`, `occurredAt` | `Enrollment.promoteFromWaitlist()` 성공 직후. |
-
-### Event Flow
-
-| Event | Producer | Consumer | 후속 액션 |
-|-------|----------|----------|-----------|
-| `ClassClosedEvent` | Class | Enrollment | 해당 강의의 `WAITLISTED` 신청 일괄 정리. |
-| `EnrollmentCreatedEvent` | Enrollment | (read model) | Creator 대시보드용 카운터 갱신. |
-| `EnrollmentConfirmedEvent` | Enrollment | (read model) | 확정 인원 카운터 증가, Creator의 수강생 목록 반영. |
-| `EnrollmentCancelledEvent` | Enrollment | Enrollment (Waitlist 정책) | `previousStatus == CONFIRMED` 인 경우 가장 오래된 `WAITLISTED` 1건을 `PENDING`으로 승격(`WaitlistPromotedEvent` 발행). |
-| `WaitlistPromotedEvent` | Enrollment | (notification, read model) | 승격된 수강생에게 결제 안내 트리거. |
+| Event | Producer | Payload Fields | Trigger | Consumer | 후속 액션 |
+|-------|----------|---------------|---------|----------|-----------|
+| `ClassOpenedEvent` | Class | `classId`, `creatorId`, `occurredAt` | `Class.open()` 성공 직후 | (read model) | mirror `class:status:{id}` 갱신 트리거. |
+| `ClassClosedEvent` | Class | `classId`, `creatorId`, `occurredAt` | `Class.close()` 또는 `Class.autoClose()` 성공 직후 | Enrollment | 해당 강의 `WAITLISTED` 신청 일괄 정리. |
+| `EnrollmentCreatedEvent` | Enrollment | `enrollmentId`, `classId`, `classmateId`, `status (PENDING\|WAITLISTED)`, `occurredAt` | `Enrollment.apply()` 또는 `waitlist()` 성공 시 | `EnrollmentEventListener.onCreated`, (read model) | Creator 대시보드 카운터 갱신 hook. |
+| `EnrollmentConfirmedEvent` | Enrollment | `enrollmentId`, `classId`, `classmateId`, `paidAt`, `occurredAt` | `Enrollment.confirm()` 성공 직후 | `EnrollmentEventListener.onConfirmed`, (read model) | 확정 인원 카운터 + Creator 수강생 목록 반영. |
+| `EnrollmentCancelledEvent` | Enrollment | `enrollmentId`, `classId`, `classmateId`, `previousStatus`, `cancelledAt`, `occurredAt` | `Enrollment.cancel()` 성공 직후 | `EnrollmentEventListener.onCancelled`, Enrollment (Waitlist 정책) | `previousStatus == CONFIRMED` 인 경우 가장 오래된 `WAITLISTED` 1건을 `PENDING` 으로 승격 (`WaitlistPromotedEvent` 발행). |
+| `WaitlistPromotedEvent` | Enrollment | `enrollmentId`, `classId`, `classmateId`, `occurredAt` | `Enrollment.promoteFromWaitlist()` 성공 직후 | `EnrollmentEventListener.onWaitlistPromoted`, (notification, read model) | 승격된 수강생에게 결제 안내 트리거. |
 
 ---
 
