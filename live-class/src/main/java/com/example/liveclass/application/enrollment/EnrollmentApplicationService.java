@@ -19,14 +19,16 @@ import com.example.liveclass.domain.enrollment.event.EnrollmentConfirmedEvent;
 import com.example.liveclass.domain.enrollment.event.EnrollmentCreatedEvent;
 import com.example.liveclass.domain.enrollment.event.WaitlistPromotedEvent;
 import com.example.liveclass.domain.user.UserId;
+import com.example.liveclass.infrastructure.ClassLockService;
 import com.example.liveclass.web.enrollment.dto.EnrollmentResponse;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,21 +42,43 @@ public class EnrollmentApplicationService {
     private final EnrollmentMirrorService mirrorService;
     private final ApplicationEventPublisher eventPublisher;
     private final MockPaymentGateway paymentGateway;
+    private final ClassLockService classLockService;
+    private final TransactionTemplate applyTxTemplate;
+    private final TransactionTemplate cancelTxTemplate;
 
     public EnrollmentApplicationService(ClassRepository classRepository,
                                         EnrollmentRepository enrollmentRepository,
                                         EnrollmentMirrorService mirrorService,
                                         ApplicationEventPublisher eventPublisher,
-                                        MockPaymentGateway paymentGateway) {
+                                        MockPaymentGateway paymentGateway,
+                                        ClassLockService classLockService,
+                                        PlatformTransactionManager txManager) {
         this.classRepository = classRepository;
         this.enrollmentRepository = enrollmentRepository;
         this.mirrorService = mirrorService;
         this.eventPublisher = eventPublisher;
         this.paymentGateway = paymentGateway;
+        this.classLockService = classLockService;
+        // apply 측 트랜잭션 — READ_COMMITTED 격리, 2초 타임아웃 (기존 @Transactional 설정 보존).
+        this.applyTxTemplate = new TransactionTemplate(txManager);
+        this.applyTxTemplate.setIsolationLevel(TransactionTemplate.ISOLATION_READ_COMMITTED);
+        this.applyTxTemplate.setTimeout(2);
+        // cancel 측 트랜잭션 — 기본 격리, 2초 타임아웃 (기존 @Transactional 설정 보존).
+        this.cancelTxTemplate = new TransactionTemplate(txManager);
+        this.cancelTxTemplate.setTimeout(2);
     }
 
-    @Transactional(isolation = Isolation.READ_COMMITTED, timeout = 2)
+    /**
+     * 외부 진입점. classId 분산락(`lock:reconcile:{classId}`)으로 reconcile 와의 race 를 차단한 뒤,
+     * 내부 TransactionTemplate 안에서 실제 apply 로직을 실행한다. 락 충돌 시
+     * ClassLockBusyException 으로 503 매핑.
+     */
     public EnrollmentResponse apply(UUID classmateId, UUID classId, Instant now) {
+        return classLockService.executeWithLock(classId,
+                () -> applyTxTemplate.execute(status -> applyInTx(classmateId, classId, now)));
+    }
+
+    private EnrollmentResponse applyInTx(UUID classmateId, UUID classId, Instant now) {
         Class clazz = classRepository.findById(classId)
                 .orElseThrow(ClassNotFoundException::new);
 
@@ -147,9 +171,22 @@ public class EnrollmentApplicationService {
      * Idempotent: already-CANCELLED enrollment returns 200 without side effects.
      * 7-day window enforced for CONFIRMED status.
      * Waitlist promotion is done atomically via Lua cancel_promote script.
+     *
+     * 진입 시 enrollmentId 만 받으므로 classId 분산락을 잡으려면 먼저 enrollment row 를 읽어야 한다.
+     * Spring Data JpaRepository.findById 는 자체 read-only 트랜잭션을 열어 한 행만 조회하므로 별도
+     * TransactionTemplate 없이 직접 호출한다 (Gemini PR #92 P2 — 의도가 명확한 호출 형태).
+     * 락 충돌 시 ClassLockBusyException 으로 503 매핑.
      */
-    @Transactional(timeout = 2)
     public EnrollmentResponse cancel(UUID enrollmentId, UUID classmateId, Instant now) {
+        UUID classId = enrollmentRepository.findById(enrollmentId)
+                .map(Enrollment::getClassId)
+                .orElseThrow(EnrollmentNotFoundException::new);
+
+        return classLockService.executeWithLock(classId,
+                () -> cancelTxTemplate.execute(status -> cancelInTx(enrollmentId, classmateId, now)));
+    }
+
+    private EnrollmentResponse cancelInTx(UUID enrollmentId, UUID classmateId, Instant now) {
         Enrollment e = enrollmentRepository.findById(enrollmentId)
                 .orElseThrow(EnrollmentNotFoundException::new);
 
