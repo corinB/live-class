@@ -8,6 +8,8 @@ Exit codes follow standard unittest convention (0 pass, non-zero fail).
 Covered cases:
 - parse_args defaults
 - collect_job_contexts handles jobs.<key>.name and the bare-key fallback
+- collect_job_contexts reports pr_path_filter for paths / paths-ignore
+- _has_pr_path_filter recognises the various on.pull_request shapes
 - main returns 1 when --repo is missing
 - run_gh returns None when subprocess fails and allow_fail=True
 """
@@ -67,7 +69,10 @@ class TestCollectJobContexts(unittest.TestCase):
                 'name: Alpha\njobs:\n  job_one:\n    name: Display Name\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n',
             )
             result = audit.collect_job_contexts(wf_dir)
-            self.assertEqual(result, {"Alpha": ["Display Name"]})
+            self.assertEqual(
+                result,
+                {"Alpha": {"checks": ["Display Name"], "pr_path_filter": False}},
+            )
 
     def test_unnamed_job_falls_back_to_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,7 +83,43 @@ class TestCollectJobContexts(unittest.TestCase):
                 'name: Beta\njobs:\n  build_and_test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n',
             )
             result = audit.collect_job_contexts(wf_dir)
-            self.assertEqual(result, {"Beta": ["build_and_test"]})
+            self.assertEqual(
+                result,
+                {"Beta": {"checks": ["build_and_test"], "pr_path_filter": False}},
+            )
+
+    def test_path_filter_paths_ignore_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wf_dir = Path(tmp)
+            self._write_workflow(
+                wf_dir,
+                "d.yml",
+                "name: Delta\non:\n  pull_request:\n    paths-ignore:\n      - '**/*.md'\njobs:\n  d_job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            )
+            result = audit.collect_job_contexts(wf_dir)
+            self.assertTrue(result["Delta"]["pr_path_filter"])
+
+    def test_path_filter_paths_whitelist_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wf_dir = Path(tmp)
+            self._write_workflow(
+                wf_dir,
+                "e.yml",
+                "name: Epsilon\non:\n  pull_request:\n    paths:\n      - 'docs/**'\njobs:\n  e_job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            )
+            result = audit.collect_job_contexts(wf_dir)
+            self.assertTrue(result["Epsilon"]["pr_path_filter"])
+
+    def test_no_path_filter_when_pr_trigger_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wf_dir = Path(tmp)
+            self._write_workflow(
+                wf_dir,
+                "f.yml",
+                "name: Zeta\non:\n  pull_request:\n    types: [opened, synchronize]\njobs:\n  f_job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+            )
+            result = audit.collect_job_contexts(wf_dir)
+            self.assertFalse(result["Zeta"]["pr_path_filter"])
 
     def test_invalid_yaml_is_skipped_with_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
