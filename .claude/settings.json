@@ -146,6 +146,14 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/cumulative-size-guard.sh\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-clear-advisor.sh\""
+          }
+        ]
       }
     ],
     "Stop": [
@@ -178,6 +186,14 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-warn-cleanup-candidates.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-clear-advisor.sh\""
           }
         ]
       }
@@ -362,6 +378,15 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-tool-context-yaml-audit.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/compact-clear-advisor.sh\""
           }
         ]
       }
