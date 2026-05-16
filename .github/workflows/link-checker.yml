@@ -48,9 +48,9 @@ jobs:
             exit 0
           fi
           # Reproduce the previous paths whitelist inline. Run when any changed
-          # file matches one of: context.yaml, top-level *.md (5), wiki-src/**,
-          # or this workflow file itself.
-          MATCH_REGEX='(^context\.yaml$|^CLAUDE\.md$|^ARCHITECTURE\.md$|^DOCS\.md$|^CONTRIBUTING\.md$|^ORCHESTRATION\.md$|^wiki-src/|^\.github/workflows/link-checker\.yml$)'
+          # file matches one of: context.yaml, top-level *.md (5), README.md,
+          # wiki-src/**, docs/**, or this workflow file itself.
+          MATCH_REGEX='(^context\.yaml$|^CLAUDE\.md$|^ARCHITECTURE\.md$|^DOCS\.md$|^CONTRIBUTING\.md$|^ORCHESTRATION\.md$|^README\.md$|^wiki-src/|^docs/|^\.github/workflows/link-checker\.yml$)'
           SHOULD_RUN=false
           while IFS= read -r f; do
             [ -z "$f" ] && continue
@@ -78,7 +78,9 @@ jobs:
             DOCS.md
             CONTRIBUTING.md
             ORCHESTRATION.md
+            README.md
             wiki-src/**/*.md
+            docs/**/*.md
           fail: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
