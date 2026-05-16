@@ -12,7 +12,9 @@ relationships:
   # Enrollment state transitions
   - {from: state/enrollment/pending, to: state/enrollment/confirmed, type: transitions_to}
   - {from: state/enrollment/pending, to: state/enrollment/cancelled, type: transitions_to}
+  # confirmed -> cancelled is gated by invariant/enrollment/cancellation_window (7-day window).
   - {from: state/enrollment/confirmed, to: state/enrollment/cancelled, type: transitions_to}
+  - {from: invariant/enrollment/cancellation_window, to: state/enrollment/cancelled, type: scopes}
   - {from: state/enrollment/waitlisted, to: state/enrollment/pending, type: transitions_to}
 
   # Invariants enforced by scripts / external mechanisms

@@ -107,6 +107,7 @@ business_context:
       core_entities: ["User", "UserRole"]
       roles: ["Creator", "Classmate"]
       auth_mechanism: "Mock - identified by the X-User-Id header. Spring Security is not used."
+      authorization: "Role check happens in the web layer (controller-level role assertion against UserRole resolved from X-User-Id). Each api/* entry's `caller:` field declares the required role."
 
   glossary:
     # state/enrollment/* and state/class/* nodes carry value-level definitions (no duplicate term/* entries for PENDING/CONFIRMED/CANCELLED/WAITLISTED/DRAFT/OPEN/CLOSED).
@@ -174,7 +175,7 @@ context_map:
     - {id: api/class/transition_open, endpoint: "PATCH /api/classes/{id}/status OPEN", caller: "Creator", summary: "starts accepting applications. Refreshes class:status:{id} mirror"}
     - {id: api/enrollment/apply, endpoint: "POST /api/enrollments", caller: "Classmate", summary: "enrollment_apply.lua atomic ZCARD vs capacity -> DB INSERT (PENDING/WAITLISTED). On DB failure, enrollment_compensate.lua rolls back."}
     - {id: api/enrollment/confirm_payment, endpoint: "POST /api/enrollments/{id}/confirm-payment", caller: "Classmate (mock)", summary: "@Version optimistic lock PENDING -> CONFIRMED. ZSET unchanged."}
-    - {id: api/enrollment/cancel, endpoint: "DELETE /api/enrollments/{id}", caller: "Classmate", summary: "7-day window check -> DB CANCELLED -> enrollment_cancel_promote.lua ZREM+ZPOPMIN+ZADD -> promoted WAITLISTED -> PENDING."}
+    - {id: api/enrollment/cancel, endpoint: "DELETE /api/enrollments/{id}", caller: "Classmate", summary: "7-day window check (transactional with DB UPDATE, no TOCTOU) -> DB CANCELLED -> enrollment_cancel_promote.lua ZREM+ZPOPMIN+ZADD -> promoted WAITLISTED -> PENDING. If promoted DB UPDATE fails, compensation reverses the ZSET swap (covered by EnrollmentCancelCompensationTest)."}
     - {id: api/class/students, endpoint: "GET /api/classes/{id}/students", caller: "Creator only", summary: "paginated list of CONFIRMED Enrollments"}
     - {id: api/admin/reconcile, endpoint: "POST /api/admin/reconcile/{classId}", caller: "ops", summary: "DEL the ZSET and rebuild enrolled/waitlist from the DB"}
     - {id: api/scheduled/auto_close, endpoint: "[Scheduled] ClassAutoCloseJob daily at 00:05 KST", caller: "Quartz", summary: "calls autoClose() on OPEN classes whose endDate has passed"}
