@@ -4,6 +4,7 @@
 -- return: 고정 길이 3 {cancellerScore, promotedId, promotedScore}
 --   promotion 없으면 promotedId, promotedScore 는 빈 문자열
 --   canceller 가 enrolled 에 없었으면 cancellerScore 도 빈 문자열
+-- Java 파서: EnrollmentApplicationService.LuaCancelResult.from(List<String>) — return shape 변경 시 함께 갱신할 것
 local cancellerScore = redis.call('ZSCORE', KEYS[1], ARGV[1])
 redis.call('ZREM', KEYS[1], ARGV[1])
 if ARGV[2] == '1' then
