@@ -14,7 +14,9 @@ public class MockPaymentGateway {
 
     /**
      * Mock payment charge — always succeeds and logs the enrollment ID.
-     * Called outside the DB transaction (ARCHITECTURE §6.2).
+     * Called inside the DB transaction (EnrollmentApplicationService.confirmPayment).
+     * Mock has no external side effects, so running inside the TX is an accepted
+     * tradeoff for implementation simplicity (ARCHITECTURE §6.2 intent met).
      */
     public void charge(UUID enrollmentId) {
         log.info("[MockPayment] charge success for enrollmentId={}", enrollmentId);
