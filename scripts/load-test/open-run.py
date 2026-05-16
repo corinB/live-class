@@ -31,6 +31,7 @@ import asyncio
 import json
 import sys
 import time
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -77,10 +78,11 @@ async def get_json(session: aiohttp.ClientSession, url: str, headers: dict) -> t
 
 
 async def register_user(session: aiohttp.ClientSession, base_url: str, role: str, name: str) -> str:
+    # X-User-Id 는 mock auth filter 가 모든 endpoint 에 요구 — register 단계에서는 검증되지 않으므로 임의값.
     status, body = await post_json(
         session,
         f"{base_url}/api/users",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-User-Id": str(uuid.uuid4())},
         payload={"role": role, "name": name},
     )
     if status != 201:
@@ -132,16 +134,37 @@ async def apply_one(
     class_id: str,
     stats: Stats,
     barrier: asyncio.Event,
+    max_retries: int,
+    backoff_base_ms: int,
 ) -> None:
+    """
+    ARCHITECTURE 4 fail-closed - 503 (CLASS_LOCK_BUSY) 는 클라이언트 retry 책임.
+    실제 오픈런 클라이언트는 짧은 backoff 후 재시도. 최대 max_retries 회.
+    터미널 응답(201/202/4xx) 또는 retry 소진 시 기록.
+    """
     await barrier.wait()
     start = time.perf_counter()
-    try:
-        status, body = await post_json(
-            session,
-            f"{base_url}/api/enrollments",
-            headers={"Content-Type": "application/json", "X-User-Id": classmate_id},
-            payload={"classId": class_id},
-        )
+    attempt = 0
+    while True:
+        try:
+            status, body = await post_json(
+                session,
+                f"{base_url}/api/enrollments",
+                headers={"Content-Type": "application/json", "X-User-Id": classmate_id},
+                payload={"classId": class_id},
+            )
+        except aiohttp.ClientError as e:
+            latency_ms = (time.perf_counter() - start) * 1000
+            stats.record(599, str(e), latency_ms)
+            return
+
+        is_lock_busy = status == 503 and "CLASS_LOCK_BUSY" in body
+        if is_lock_busy and attempt < max_retries:
+            attempt += 1
+            jitter = backoff_base_ms * (1 + attempt * 0.5) / 1000.0
+            await asyncio.sleep(jitter)
+            continue
+
         latency_ms = (time.perf_counter() - start) * 1000
         enrollment_id = None
         if status in (201, 202):
@@ -150,9 +173,7 @@ async def apply_one(
             except json.JSONDecodeError:
                 pass
         stats.record(status, body, latency_ms, enrollment_id)
-    except aiohttp.ClientError as e:
-        latency_ms = (time.perf_counter() - start) * 1000
-        stats.record(599, str(e), latency_ms)
+        return
 
 
 def summarize(stats: Stats, users: int, capacity: int) -> int:
@@ -164,7 +185,7 @@ def summarize(stats: Stats, users: int, capacity: int) -> int:
         p50 = sorted_lat[len(sorted_lat) // 2]
         p95 = sorted_lat[int(len(sorted_lat) * 0.95)]
         p99 = sorted_lat[int(len(sorted_lat) * 0.99)]
-        print(f"latency ms — p50={p50:.1f}, p95={p95:.1f}, p99={p99:.1f}, max={max(sorted_lat):.1f}")
+        print(f"latency ms - p50={p50:.1f}, p95={p95:.1f}, p99={p99:.1f}, max={max(sorted_lat):.1f}")
     print(f"PENDING enrollments: {len(stats.pending_ids)}")
     print(f"WAITLISTED enrollments: {len(stats.waitlisted_ids)}")
     if stats.errors:
@@ -191,18 +212,27 @@ def summarize(stats: Stats, users: int, capacity: int) -> int:
     return 0
 
 
+async def register_chunked(session, base_url: str, count: int, chunk: int = 200) -> list[str]:
+    """register 가 직렬화 압박원이 되지 않도록 chunk 단위로 등록."""
+    ids: list[str] = []
+    for start in range(0, count, chunk):
+        end = min(start + chunk, count)
+        batch = await asyncio.gather(
+            *[register_user(session, base_url, "CLASSMATE", f"classmate-{i}") for i in range(start, end)]
+        )
+        ids.extend(batch)
+    return ids
+
+
 async def main_async(args: argparse.Namespace) -> int:
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+    timeout = aiohttp.ClientTimeout(total=args.timeout_sec)
+    connector = aiohttp.TCPConnector(limit=args.connection_limit)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         print(f"target: {args.base_url}")
         print(f"registering creator + {args.users} classmates...")
 
         creator_id = await register_user(session, args.base_url, "CREATOR", "OpenRunCreator")
-        classmate_ids = await asyncio.gather(
-            *[
-                register_user(session, args.base_url, "CLASSMATE", f"classmate-{i}")
-                for i in range(args.users)
-            ]
-        )
+        classmate_ids = await register_chunked(session, args.base_url, args.users)
 
         print(f"creating class with capacity={args.capacity}...")
         class_id = await create_class(session, args.base_url, creator_id, args.capacity)
@@ -212,10 +242,11 @@ async def main_async(args: argparse.Namespace) -> int:
         stats = Stats()
         barrier = asyncio.Event()
 
-        print(f"firing {args.users} simultaneous apply calls...")
+        print(f"firing {args.users} simultaneous apply calls (max_retries={args.max_retries})...")
         tasks = [
             asyncio.create_task(
-                apply_one(session, args.base_url, cm_id, class_id, stats, barrier)
+                apply_one(session, args.base_url, cm_id, class_id, stats, barrier,
+                          args.max_retries, args.backoff_base_ms)
             )
             for cm_id in classmate_ids
         ]
@@ -234,6 +265,14 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://localhost:8080", help="백엔드 base URL")
     parser.add_argument("--users", type=int, default=100, help="동시 신청 사용자 수")
     parser.add_argument("--capacity", type=int, default=10, help="단일 강의 capacity")
+    parser.add_argument("--max-retries", type=int, default=20,
+                        help="503 CLASS_LOCK_BUSY 시 클라이언트 retry 횟수 (fail-closed 정합)")
+    parser.add_argument("--backoff-base-ms", type=int, default=20,
+                        help="retry backoff 기본값(ms). 실제 대기 = base * (1 + 0.5*attempt)")
+    parser.add_argument("--timeout-sec", type=int, default=60,
+                        help="HTTP 요청 전체 timeout(s). 큰 N 에서 늘림.")
+    parser.add_argument("--connection-limit", type=int, default=500,
+                        help="aiohttp connection pool 한도. 큰 N 에서 늘림.")
     args = parser.parse_args()
     return asyncio.run(main_async(args))
 
