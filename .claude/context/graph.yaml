@@ -2,15 +2,18 @@
 imported_by: context.yaml
 
 relationships:
-  # Domain containment + state transitions
+  # Domain containment (states are nested inside domains; transitions_to is reserved for state -> state edges only)
   - {from: domain/class, to: domain/enrollment, type: contains}
-  - {from: domain/class, to: state/class/draft, type: transitions_to}
-  - {from: domain/class, to: state/class/open, type: transitions_to}
-  - {from: domain/class, to: state/class/closed, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/pending, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/confirmed, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/cancelled, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/waitlisted, type: transitions_to}
+
+  # Class state transitions (one-way: DRAFT -> OPEN -> CLOSED)
+  - {from: state/class/draft, to: state/class/open, type: transitions_to}
+  - {from: state/class/open, to: state/class/closed, type: transitions_to}
+
+  # Enrollment state transitions
+  - {from: state/enrollment/pending, to: state/enrollment/confirmed, type: transitions_to}
+  - {from: state/enrollment/pending, to: state/enrollment/cancelled, type: transitions_to}
+  - {from: state/enrollment/confirmed, to: state/enrollment/cancelled, type: transitions_to}
+  - {from: state/enrollment/waitlisted, to: state/enrollment/pending, type: transitions_to}
 
   # Invariants enforced by scripts / external mechanisms
   - {from: invariant/enrollment/no_overcapacity_pending, to: script/lua/enrollment_apply, type: enforced_by}
@@ -43,7 +46,6 @@ relationships:
   - {from: api/enrollment/cancel, to: term/cancellation_window, type: scopes}
   - {from: api/admin/reconcile, to: term/reconcile, type: depends_on}
   - {from: api/scheduled/auto_close, to: term/auto_close, type: depends_on}
-  - {from: api/class/transition_open, to: state/class/open, type: transitions_to}
 
   # Scheduled trigger
   - {from: term/auto_close, to: external/quartz, type: triggered_by}
