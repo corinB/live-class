@@ -227,7 +227,7 @@ metadata:
     - {path: "wiki-src/ko/docs/guides/automation-hitl.md", description: "HITL intervention via @claude comments"}
     - {path: "wiki-src/ko/docs/guides/automation-troubleshooting.md", description: "Handling needs-human PRs, kill switch, recovery"}
     - {path: "CLAUDE.md", description: "Behavioral rules + language policy (PR title English, body/reports Korean) + project pointers"}
-    - {path: "README.md", description: "Submission README (419 lines, 12 sections)"}
+    - {path: "README.md", description: "Submission README (437 lines, 12 sections + TOC)"}
   pipeline_state_files:
     - "wiki-src/plan-before/*.md  # pending tasks (directory created lazily by maestro)"
     - "wiki-src/plan-after/*.md  # completed tasks (Wiki staging area)"
