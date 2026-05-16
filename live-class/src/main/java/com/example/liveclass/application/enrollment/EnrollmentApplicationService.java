@@ -172,14 +172,15 @@ public class EnrollmentApplicationService {
      * 7-day window enforced for CONFIRMED status.
      * Waitlist promotion is done atomically via Lua cancel_promote script.
      *
-     * 진입 시 enrollmentId 만 받으므로 classId 분산락을 잡으려면 먼저 enrollment row 를 읽어 classId 를
-     * 얻어야 한다. 이를 위해 짧은 read-only 트랜잭션으로 classId 만 조회 후 본 트랜잭션 + 락을 잡는다.
+     * 진입 시 enrollmentId 만 받으므로 classId 분산락을 잡으려면 먼저 enrollment row 를 읽어야 한다.
+     * Spring Data JpaRepository.findById 는 자체 read-only 트랜잭션을 열어 한 행만 조회하므로 별도
+     * TransactionTemplate 없이 직접 호출한다 (Gemini PR #92 P2 — 의도가 명확한 호출 형태).
      * 락 충돌 시 ClassLockBusyException 으로 503 매핑.
      */
     public EnrollmentResponse cancel(UUID enrollmentId, UUID classmateId, Instant now) {
-        UUID classId = applyTxTemplate.execute(status -> enrollmentRepository.findById(enrollmentId)
+        UUID classId = enrollmentRepository.findById(enrollmentId)
                 .map(Enrollment::getClassId)
-                .orElseThrow(EnrollmentNotFoundException::new));
+                .orElseThrow(EnrollmentNotFoundException::new);
 
         return classLockService.executeWithLock(classId,
                 () -> cancelTxTemplate.execute(status -> cancelInTx(enrollmentId, classmateId, now)));

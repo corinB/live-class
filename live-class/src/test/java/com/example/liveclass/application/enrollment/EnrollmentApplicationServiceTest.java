@@ -16,6 +16,8 @@ import com.example.liveclass.domain.user.User;
 import com.example.liveclass.domain.user.UserId;
 import com.example.liveclass.domain.user.UserRepository;
 import com.example.liveclass.domain.user.UserRole;
+import com.example.liveclass.infrastructure.ClassLockBusyException;
+import com.example.liveclass.infrastructure.ReconcileService;
 import com.example.liveclass.support.IntegrationTest;
 import com.example.liveclass.support.PostgresTestContainer;
 import com.example.liveclass.support.RedisContainerExtension;
@@ -31,10 +33,17 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Currency;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,6 +77,9 @@ class EnrollmentApplicationServiceTest {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private ReconcileService reconcileService;
 
     @MockitoSpyBean
     private EnrollmentMirrorService mirrorServiceSpy;
@@ -229,5 +241,104 @@ class EnrollmentApplicationServiceTest {
         assertThat(stringRedisTemplate.opsForValue().get(statusKey)).isEqualTo("OPEN");
         // Verify ZSET was updated
         assertThat(stringRedisTemplate.opsForZSet().zCard(enrolledKey)).isEqualTo(1L);
+    }
+
+    // ─── P1 — apply / reconcile classId 분산락 충돌 ─────────────────────────────
+    /**
+     * 외부 holder 가 `lock:reconcile:{classId}` 를 잡고 있으면 apply 는 즉시 ClassLockBusyException
+     * 으로 503 매핑되고, reconcileService.reconcileOne 도 false 를 리턴해 본체를 건너뛴다. 락 해제 후
+     * 동일 apply 가 정상적으로 PENDING 으로 진행되는지까지 검증.
+     */
+    @Test
+    void classLock_blocksApplyAndReconcile_whenHeld() {
+        Class clazz = persistOpenClass(10);
+        String lockKey = "lock:reconcile:" + clazz.getId();
+        String enrolledKey = "enrolled:" + clazz.getId();
+        stringRedisTemplate.delete(enrolledKey);
+
+        stringRedisTemplate.opsForValue().set(lockKey, "external-holder", Duration.ofSeconds(5));
+        try {
+            assertThatThrownBy(() ->
+                    enrollmentApplicationService.apply(classmateId, clazz.getId(), Instant.now()))
+                    .isInstanceOf(ClassLockBusyException.class);
+
+            boolean reconciled = reconcileService.reconcileOne(clazz.getId());
+            assertThat(reconciled).isFalse();
+
+            // External lock value untouched by either contender (safe-unlock token guard).
+            assertThat(stringRedisTemplate.opsForValue().get(lockKey)).isEqualTo("external-holder");
+            // No enrollment row should have been written.
+            assertThat(enrollmentRepository.findAll()).isEmpty();
+            assertThat(stringRedisTemplate.opsForZSet().zCard(enrolledKey)).isZero();
+        } finally {
+            stringRedisTemplate.delete(lockKey);
+        }
+
+        // After lock release, apply succeeds normally.
+        EnrollmentResponse response = enrollmentApplicationService.apply(classmateId, clazz.getId(), Instant.now());
+        assertThat(response.status()).isEqualTo(EnrollmentStatus.PENDING);
+        assertThat(stringRedisTemplate.opsForZSet().zCard(enrolledKey)).isEqualTo(1L);
+    }
+
+    /**
+     * 두 apply 가 같은 classId 에 동시에 들어오면 한쪽만 락을 쥐고 진행, 다른 한쪽은
+     * ClassLockBusyException 으로 503 (재시도 권장). CountDownLatch 로 starting gun.
+     */
+    @Test
+    void classLock_contention_oneApplySucceeds_otherRejected() throws Exception {
+        Class clazz = persistOpenClass(10);
+        stringRedisTemplate.delete("enrolled:" + clazz.getId());
+
+        UUID cm1 = userRepository.save(User.register(UserRole.CLASSMATE, "Contender-1", Instant.now())).getId();
+        UUID cm2 = userRepository.save(User.register(UserRole.CLASSMATE, "Contender-2", Instant.now())).getId();
+
+        // 외부에서 락을 잠시 잡아 두 apply 가 동시에 충돌하도록 정렬한다. 외부 락 TTL 200ms 후 만료.
+        String lockKey = "lock:reconcile:" + clazz.getId();
+        stringRedisTemplate.opsForValue().set(lockKey, "starter", Duration.ofMillis(200));
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicReference<Throwable> err1 = new AtomicReference<>();
+        AtomicReference<Throwable> err2 = new AtomicReference<>();
+        AtomicBoolean ok1 = new AtomicBoolean(false);
+        AtomicBoolean ok2 = new AtomicBoolean(false);
+
+        pool.submit(() -> {
+            ready.countDown();
+            try { go.await(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+            try {
+                enrollmentApplicationService.apply(cm1, clazz.getId(), Instant.now());
+                ok1.set(true);
+            } catch (Throwable t) {
+                err1.set(t);
+            }
+        });
+        pool.submit(() -> {
+            ready.countDown();
+            try { go.await(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+            try {
+                enrollmentApplicationService.apply(cm2, clazz.getId(), Instant.now().plusMillis(1));
+                ok2.set(true);
+            } catch (Throwable t) {
+                err2.set(t);
+            }
+        });
+
+        ready.await(2, TimeUnit.SECONDS);
+        go.countDown();
+        pool.shutdown();
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+
+        // Starter 락이 만료될 때까지 두 호출은 즉시 ClassLockBusyException 으로 떨어진다.
+        assertThat(err1.get()).isInstanceOf(ClassLockBusyException.class);
+        assertThat(err2.get()).isInstanceOf(ClassLockBusyException.class);
+        assertThat(ok1.get()).isFalse();
+        assertThat(ok2.get()).isFalse();
+
+        // 외부 락 만료 후 새로운 apply 는 통과한다 (멱등성 검증 — 락 상태가 후속 진입을 막지 않는다).
+        stringRedisTemplate.delete(lockKey);
+        EnrollmentResponse after = enrollmentApplicationService.apply(classmateId, clazz.getId(), Instant.now().plusMillis(50));
+        assertThat(after.status()).isEqualTo(EnrollmentStatus.PENDING);
     }
 }
