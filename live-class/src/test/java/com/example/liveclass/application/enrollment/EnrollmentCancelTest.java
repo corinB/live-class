@@ -182,7 +182,7 @@ class EnrollmentCancelTest {
         assertThat(second.status()).isEqualTo(EnrollmentStatus.CANCELLED);
     }
 
-    // ─── Scenario 5: reverseCancelPromote 직접 검증 — ZSET 복귀 ─────────────
+    // ─── Scenario 5: reverseCancelPromote 직접 검증 — ZSET 복귀 + canceller score 보존 ─
     @Test
     void reverseCancelPromote_restoresZset() {
         Class clazz = persistOpenClass(10);
@@ -192,10 +192,11 @@ class EnrollmentCancelTest {
         stringRedisTemplate.opsForZSet().add("enrolled:" + clazz.getId(), canceller.toString(), 1000L);
         stringRedisTemplate.opsForZSet().add("waitlist:" + clazz.getId(), promoted.toString(), 2000L);
 
-        mirrorServiceSpy.reverseCancelPromote(clazz.getId(), canceller, promoted, 2000L);
+        mirrorServiceSpy.reverseCancelPromote(clazz.getId(), canceller, promoted, 1000.0, 2000L);
 
         Double cancellerScore = stringRedisTemplate.opsForZSet().score("enrolled:" + clazz.getId(), canceller.toString());
         assertThat(cancellerScore).isNotNull(); // canceller restored to enrolled
+        assertThat(cancellerScore).isEqualTo(1000.0); // and at the ORIGINAL score, not a fresh nanoTime
         Double promotedWaitlistScore = stringRedisTemplate.opsForZSet().score("waitlist:" + clazz.getId(), promoted.toString());
         assertThat(promotedWaitlistScore).isNotNull(); // promoted restored to waitlist
         assertThat(promotedWaitlistScore).isEqualTo(2000.0);

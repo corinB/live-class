@@ -222,11 +222,15 @@ public class EnrollmentApplicationService {
         }
 
         // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled
+        // Return shape: [cancellerScore, promotedId, promotedScore] — fixed length 3.
+        // promotedId/promotedScore are empty strings when no waitlist promotion occurred.
         List<String> luaResult = mirrorService.cancelAndMaybePromote(classId, classmateId, wasConfirmed);
 
-        if (luaResult != null && luaResult.size() >= 2) {
-            UUID promotedClassmateId = UUID.fromString(luaResult.get(0));
-            long promotedScore = Long.parseLong(luaResult.get(1));
+        if (luaResult != null && luaResult.size() >= 3 && !luaResult.get(1).isEmpty()) {
+            String cancellerScoreStr = luaResult.get(0);
+            double cancellerScore = cancellerScoreStr.isEmpty() ? 0.0 : Double.parseDouble(cancellerScoreStr);
+            UUID promotedClassmateId = UUID.fromString(luaResult.get(1));
+            long promotedScore = Long.parseLong(luaResult.get(2));
 
             Enrollment promoted = enrollmentRepository.findActiveByClassAndClassmate(classId, promotedClassmateId)
                     .orElseThrow(EnrollmentNotFoundException::new);
@@ -235,8 +239,10 @@ public class EnrollmentApplicationService {
                 promoted.promoteFromWaitlist(now);
                 enrollmentRepository.save(promoted);
             } catch (Exception ex) {
-                // DB UPDATE failed — reverse the Lua ZSET changes
-                mirrorService.reverseCancelPromote(classId, classmateId, promotedClassmateId, promotedScore);
+                // DB UPDATE failed — reverse the Lua ZSET changes, restoring the canceller
+                // to its ORIGINAL score so waitlist FIFO order is preserved.
+                mirrorService.reverseCancelPromote(classId, classmateId, promotedClassmateId,
+                        cancellerScore, promotedScore);
                 throw ex;
             }
 

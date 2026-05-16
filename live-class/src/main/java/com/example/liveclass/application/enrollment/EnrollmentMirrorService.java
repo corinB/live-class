@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -96,12 +97,15 @@ public class EnrollmentMirrorService {
 
     /**
      * Reverse compensation after a failed promoted-enrollment DB UPDATE.
-     * Single atomic Lua call: restores canceller to enrolled ZSET and (if promoted is non-null)
-     * removes promoted from enrolled and restores it to waitlist — all in one Redis round-trip.
+     * Single atomic Lua call: restores canceller to enrolled ZSET at its ORIGINAL score
+     * (preserving FIFO position) and — if promoted is non-null — removes promoted from
+     * enrolled and restores it to waitlist, all in one Redis round-trip.
+     * The cancellerScore argument is the score returned by enrollment_cancel_promote.lua
+     * so the canceller is restored at the exact pre-cancel position, not at a new nanoTime.
      */
-    public void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted, long promotedScore) {
+    public void reverseCancelPromote(UUID classId, UUID canceller, UUID promoted,
+                                     double cancellerScore, long promotedScore) {
         try {
-            long cancellerScore = System.nanoTime();
             String promotedArg = promoted != null ? promoted.toString() : "";
             redisTemplate.execute(
                     enrollmentReverseCancelPromoteScript,
@@ -114,6 +118,15 @@ public class EnrollmentMirrorService {
         } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
             throw new MirrorUnavailableException("Redis unavailable during reverse cancel promote", ex);
         }
+    }
+
+    /**
+     * Converts an Instant to the ZSET score format used by enrollment_apply.lua
+     * (epochSecond * 1e9 + nano). Exposed for tests and callers that need to
+     * pre-compute a score outside the Lua boundary.
+     */
+    public static long scoreOf(Instant instant) {
+        return instant.getEpochSecond() * 1_000_000_000L + instant.getNano();
     }
 
     /**
