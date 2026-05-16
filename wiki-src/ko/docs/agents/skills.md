@@ -61,6 +61,31 @@
 - **plan 이동**: 워커가 **같은 PR 안에서** `git mv plan/before/NN_*.md plan/after/NN_*.md`를 실행한다. PreToolUse hook이 두 조건(`reports/NN_*.md` 존재 + 체크리스트 전부 `[x]`)을 검증해 위반 시 이동을 deny하므로 reports와 체크리스트가 먼저 완료돼야 한다. squash merge 시 code + report + plan 전이가 atomic하게 main으로 들어간다.
 - **다음**: PR 머지 후 다음 태스크 파일로 `/exec-blueprint` 재호출.
 
+## 보조 스킬 — 리팩토링·문서·가드 (2026-05-16 추가)
+
+### `/pipeline-guard`
+
+- **언제 부르나**: 최근 변경이 5축(hooks / wiki / tests / workflows / context.yaml) 에 미치는 영향을 검증하고 동기화할 때. `/evolution` 과 `/business-card-production` 끝에 자동 체이닝.
+- **인자**: 없음 → 최근 commit/PR diff 자동. 또는 `/pipeline-guard <file1> <file2> ...`.
+- **전제**: 저장소 루트 git, `.claude/scripts/audit-context-yaml.py` 존재.
+- **흐름**: 5축 검사 → 영향 0 = 1줄 보고로 종료 / 영향 ≥1 = `EnterPlanMode` 자동 호출 + plan 작성 → `ExitPlanMode` 승인 → 메인 세션 직접 동기화 (wiki/context.yaml 갱신, hooks/workflows/tests 보강).
+- **다음**: 머지·PR 생성은 사용자 결정.
+
+### `/evolution`
+
+- **언제 부르나**: 리팩토링 사이클 자동화 1회 호출.
+- **인자**: 자유 텍스트 (리팩토링 트리거).
+- **전제**: `refactoring-maestro` · `refactoring-worker` · `pipeline-guard` 스킬 · user-level `ask-and-delegate` 스킬 모두 존재. 현재 브랜치가 main 이 아닐 것.
+- **흐름**: `EnterPlanMode` → `Skill("ask-and-delegate")` → plan 승인 → `Agent("refactoring-maestro")` 1회 → 적용 → `Skill("pipeline-guard")` 자동 체이닝.
+
+### `/business-card-production`
+
+- **언제 부르나**: 면접관 평가용 README + 상세 문서 세트 일괄 생성·갱신 1회 호출.
+- **인자**: 없음 → 표준 요구사항 텍스트. 또는 `/business-card-production <requirements-file.md>`.
+- **전제**: `doc-maestro` · `doc-worker` · `doc-troubleshooting-worker` 에이전트 + `pipeline-guard` 스킬 + 루트 `DOCS.md`/`ARCHITECTURE.md`/`context.yaml` 모두 존재.
+- **흐름**: `Agent("doc-maestro")` 1회 (내부에서 doc-worker × 4 + doc-troubleshooting-worker × 4 병렬) → 사용자 검토 → `Skill("pipeline-guard")` 자동 체이닝.
+- **출력**: 기존 README/docs 덮어쓰기. 필요 시 사용자가 git history 로 복원.
+
 ## 호출 패턴 공통
 
 | 단계 | 동작 |
