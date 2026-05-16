@@ -1,0 +1,79 @@
+# t3.small (2 vCPU + 2 GiB) 격리 부하 테스트 환경.
+# 사용:
+#   docker compose -p t3sim -f docker-compose.t3-small.yml up -d
+# 격리 포인트:
+#   - 별도 project name `t3sim` 으로 기존 live-class 컨테이너와 분리.
+#   - 별도 포트 (8081 / 5433 / 6380) — 본 작업 영향 차단.
+#   - 별도 네트워크 t3sim-net.
+#   - 모든 서비스 합계가 t3.small 사양에 맞도록 cgroup limit 분배.
+services:
+  t3sim-postgres:
+    image: postgres:16-alpine
+    container_name: t3sim-postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: liveclass
+    ports:
+      - "5433:5432"
+    networks: [t3sim-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d liveclass"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: 400m
+
+  t3sim-redis:
+    image: redis:7-alpine
+    container_name: t3sim-redis
+    ports:
+      - "6380:6379"
+    networks: [t3sim-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 200m
+
+  t3sim-app:
+    image: ${DOCKERHUB_USERNAME:-qor7777777}/live-class-back:${IMAGE_TAG:-latest}
+    container_name: t3sim-app
+    depends_on:
+      t3sim-postgres:
+        condition: service_healthy
+      t3sim-redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://t3sim-postgres:5432/liveclass
+      SPRING_DATASOURCE_USERNAME: app
+      SPRING_DATASOURCE_PASSWORD: app
+      SPRING_DATA_REDIS_HOST: t3sim-redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      JAVA_OPTS: "-Xms256m -Xmx1000m -XX:MaxMetaspaceSize=192m"
+    ports:
+      - "8081:8080"
+    networks: [t3sim-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    deploy:
+      resources:
+        limits:
+          cpus: "1.3"
+          memory: 1400m
+
+networks:
+  t3sim-net:
+    driver: bridge

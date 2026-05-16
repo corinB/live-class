@@ -1,0 +1,87 @@
+# t3.nano (2 vCPU + 0.5 GiB) 극단 격리 부하 테스트.
+# 부팅 자체가 의심스러운 사양 — 한계 검증.
+# 사용:
+#   docker compose -p t3nano -f docker-compose.t3-nano.yml --compatibility up -d
+# 포트: app 8082 / postgres 5434 / redis 6381
+services:
+  t3nano-postgres:
+    image: postgres:16-alpine
+    container_name: t3nano-postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: liveclass
+      # 메모리 제약 하의 postgres 안전 설정
+      POSTGRES_INITDB_ARGS: "--no-locale --encoding=UTF-8"
+    command: >
+      postgres
+      -c shared_buffers=32MB
+      -c work_mem=2MB
+      -c maintenance_work_mem=8MB
+      -c effective_cache_size=64MB
+      -c max_connections=30
+    ports:
+      - "5434:5432"
+    networks: [t3nano-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d liveclass"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    deploy:
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: 110m
+
+  t3nano-redis:
+    image: redis:7-alpine
+    container_name: t3nano-redis
+    command: redis-server --maxmemory 20mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6381:6379"
+    networks: [t3nano-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 35m
+
+  t3nano-app:
+    image: ${DOCKERHUB_USERNAME:-qor7777777}/live-class-back:${IMAGE_TAG:-latest}
+    container_name: t3nano-app
+    depends_on:
+      t3nano-postgres:
+        condition: service_healthy
+      t3nano-redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://t3nano-postgres:5432/liveclass
+      SPRING_DATASOURCE_USERNAME: app
+      SPRING_DATASOURCE_PASSWORD: app
+      SPRING_DATA_REDIS_HOST: t3nano-redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      # JVM heap 매우 작게. Metaspace 도 줄임. Spring Boot 부팅 가능 최저선 시도.
+      JAVA_OPTS: "-Xms128m -Xmx220m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m"
+    ports:
+      - "8082:8080"
+    networks: [t3nano-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    deploy:
+      resources:
+        limits:
+          cpus: "1.3"
+          memory: 360m
+
+networks:
+  t3nano-net:
+    driver: bridge

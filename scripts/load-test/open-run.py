@@ -229,10 +229,18 @@ async def main_async(args: argparse.Namespace) -> int:
     connector = aiohttp.TCPConnector(limit=args.connection_limit)
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         print(f"target: {args.base_url}")
-        print(f"registering creator + {args.users} classmates...")
 
         creator_id = await register_user(session, args.base_url, "CREATOR", "OpenRunCreator")
-        classmate_ids = await register_chunked(session, args.base_url, args.users)
+
+        if args.skip_classmate_register:
+            # apply 단계는 user 존재 검증을 하지 않는다 (mock auth — EnrollmentApplicationService
+            # 의 검증은 creator vs classmate 동일 여부만). 큰 N 부하 테스트의 등록 단계
+            # 자체가 압박원이 되지 않게 임의 UUID 생성으로 대체.
+            print(f"skipping classmate register, generating {args.users} synthetic UUIDs...")
+            classmate_ids = [str(uuid.uuid4()) for _ in range(args.users)]
+        else:
+            print(f"registering {args.users} classmates...")
+            classmate_ids = await register_chunked(session, args.base_url, args.users)
 
         print(f"creating class with capacity={args.capacity}...")
         class_id = await create_class(session, args.base_url, creator_id, args.capacity)
@@ -273,6 +281,8 @@ def main() -> int:
                         help="HTTP 요청 전체 timeout(s). 큰 N 에서 늘림.")
     parser.add_argument("--connection-limit", type=int, default=500,
                         help="aiohttp connection pool 한도. 큰 N 에서 늘림.")
+    parser.add_argument("--skip-classmate-register", action="store_true",
+                        help="classmate 등록 단계 건너뛰고 임의 UUID 사용 (mock auth 가정).")
     args = parser.parse_args()
     return asyncio.run(main_async(args))
 
