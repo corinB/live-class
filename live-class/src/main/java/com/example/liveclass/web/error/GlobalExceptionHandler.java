@@ -4,16 +4,21 @@ package com.example.liveclass.web.error;
 import com.example.liveclass.application.enrollment.MirrorUnavailableException;
 import com.example.liveclass.domain.shared.DomainException;
 import com.example.liveclass.infrastructure.ClassLockBusyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(DomainException.class)
     public ResponseEntity<ProblemDetail> handleDomainException(DomainException ex) {
@@ -49,6 +54,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(detail);
     }
 
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ProblemDetail> handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        // JSON parse 실패 — invalid syntax / UTF-8 byte 깨짐 / 빈 body 등. 500 이 아니라 400 으로 명확히 안내.
+        log.warn("Invalid request body rejected: {}", ex.getMostSpecificCause().getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST,
+                "Invalid request body — JSON parse 실패. Content-Type charset (UTF-8) 과 JSON 문법 확인 필요.");
+        detail.setProperty("errorCode", "MALFORMED_JSON");
+        return ResponseEntity.badRequest().body(detail);
+    }
+
     @ExceptionHandler(ClassLockBusyException.class)
     public ResponseEntity<ProblemDetail> handleClassLockBusy(ClassLockBusyException ex) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(
@@ -60,6 +76,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGeneric(Exception ex) {
+        // 분류되지 않은 예외는 운영 진단을 위해 stack trace 와 함께 ERROR 로깅한다.
+        // 기존엔 swallow 되어 한글 RequestBody 500 같은 케이스에서 원인 추적이 불가능했다.
+        log.error("Unhandled exception reached GlobalExceptionHandler", ex);
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
         detail.setProperty("errorCode", "INTERNAL_ERROR");
