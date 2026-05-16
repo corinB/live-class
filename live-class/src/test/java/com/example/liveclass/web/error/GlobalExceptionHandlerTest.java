@@ -1,9 +1,11 @@
-// GlobalExceptionHandler 가 DomainException 을 ProblemDetail 형식으로 응답하는지 검증하는 슬라이스 테스트
+// GlobalExceptionHandler 가 DomainException 과 Redis 다운 예외를 ProblemDetail 형식으로 응답하는지 검증하는 슬라이스 테스트
 package com.example.liveclass.web.error;
 
 import com.example.liveclass.domain.shared.DomainException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,9 +30,19 @@ class GlobalExceptionHandlerTest {
     @RestController
     @RequestMapping("/api/test-error")
     static class DummyController {
-        @GetMapping
-        public String fail() {
+        @GetMapping("/domain")
+        public String domainFail() {
             throw new SampleDomainException();
+        }
+
+        @GetMapping("/redis-timeout")
+        public String redisTimeoutFail() {
+            throw new QueryTimeoutException("simulated redis command timeout");
+        }
+
+        @GetMapping("/redis-conn")
+        public String redisConnFail() {
+            throw new RedisConnectionFailureException("simulated redis connection failure");
         }
     }
 
@@ -44,11 +56,29 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void domainException_returnsProblemDetail() throws Exception {
-        mockMvc.perform(get("/api/test-error"))
+        mockMvc.perform(get("/api/test-error/domain"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.detail").value("Sample domain error occurred"))
                 .andExpect(jsonPath("$.errorCode").value("SAMPLE_ERROR"));
+    }
+
+    @Test
+    void redisQueryTimeout_returns503MirrorUnavailable() throws Exception {
+        mockMvc.perform(get("/api/test-error/redis-timeout"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.errorCode").value("MIRROR_UNAVAILABLE"));
+    }
+
+    @Test
+    void redisConnectionFailure_returns503MirrorUnavailable() throws Exception {
+        mockMvc.perform(get("/api/test-error/redis-conn"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.errorCode").value("MIRROR_UNAVAILABLE"));
     }
 }
