@@ -1,4 +1,11 @@
 # 테스트 클래스패스에 우선 적용되어 PostgreSQL/Redis 외부 의존을 in-memory H2 / 임베디드 환경으로 대체하는 테스트 전용 설정
+
+# ReconcileRunner는 부팅 시 findByStatus(OPEN) → Class SELECT를 트리거한다. Capacity의 `value` 컬럼은
+# H2 PG 모드에서 reserved keyword라 파싱 실패. 테스트 컨텍스트는 ReconcileRunner를 끈다. 직접 ReconcileService를
+# 호출하는 통합 테스트는 영향 없음 (ReconcileServiceIntegrationTest 등).
+reconcile:
+  run-at-startup: false
+
 spring:
   datasource:
     url: jdbc:h2:mem:liveclass-test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL

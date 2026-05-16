@@ -5,10 +5,12 @@ import com.example.liveclass.infrastructure.ReconcileService;
 import com.example.liveclass.web.admin.dto.ReconcileResponse;
 import com.example.liveclass.web.auth.CurrentUserId;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,7 +31,11 @@ public class AdminReconcileController {
                                        @PathVariable UUID classId) {
         Instant now = Instant.now();
         log.info("manual reconcile triggered classId={}, caller={}", classId, caller);
-        reconcileService.reconcileOne(classId);
+        boolean ran = reconcileService.reconcileOne(classId);
+        if (!ran) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "reconcile in progress for classId=" + classId);
+        }
         return new ReconcileResponse(classId, now);
     }
 }

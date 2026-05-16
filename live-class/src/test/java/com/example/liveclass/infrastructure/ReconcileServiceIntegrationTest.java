@@ -161,4 +161,47 @@ class ReconcileServiceIntegrationTest {
             prev = t.getScore();
         }
     }
+
+    /**
+     * P1 동시성 보호 — 같은 classId에 대해 외부 클라이언트가 이미 락(`lock:reconcile:{classId}`)을 잡고
+     * 있는 동안 reconcileOne이 호출되면 본체를 건너뛰고 false를 리턴해야 한다 (분산락 정합성).
+     */
+    @Test
+    void reconcileOne_skipsWhenLockHeldElsewhere() {
+        String lockKey = "lock:reconcile:" + classId;
+        // 외부 클라이언트가 락을 선점한 상황을 시뮬레이션. TTL을 짧게 잡아 테스트가 빨리 끝나도록.
+        redisTemplate.opsForValue().set(lockKey, "external-holder",
+                java.time.Duration.ofSeconds(5));
+        try {
+            boolean ran = reconcileService.reconcileOne(classId);
+            assertThat(ran).isFalse();
+
+            // 본체가 안 돌았으니 ZSET은 빈 상태 그대로 (setUp에서 비워둠).
+            Long enrolledCard = redisTemplate.opsForZSet().zCard("enrolled:" + classId);
+            Long waitlistCard = redisTemplate.opsForZSet().zCard("waitlist:" + classId);
+            assertThat(enrolledCard).isZero();
+            assertThat(waitlistCard).isZero();
+        } finally {
+            redisTemplate.delete(lockKey);
+        }
+    }
+
+    /**
+     * 락 해제 안전성 — 본인이 안 잡은 락은 해제하지 않는다. 외부 락이 살아있는 동안 reconcileOne을
+     * 호출해도 외부 락의 값은 변하지 않아야 한다 (토큰 기반 safe-unlock Lua 보장).
+     */
+    @Test
+    void reconcileOne_doesNotReleaseForeignLock() {
+        String lockKey = "lock:reconcile:" + classId;
+        redisTemplate.opsForValue().set(lockKey, "external-holder",
+                java.time.Duration.ofSeconds(5));
+        try {
+            reconcileService.reconcileOne(classId);
+
+            String afterValue = redisTemplate.opsForValue().get(lockKey);
+            assertThat(afterValue).isEqualTo("external-holder");
+        } finally {
+            redisTemplate.delete(lockKey);
+        }
+    }
 }
