@@ -1,4 +1,4 @@
-﻿---
+---
 name: "doc-troubleshooting-worker"
 description: "doc-maestro 가 위임한 단일 트러블슈팅 문서 1건을 [문제 상황 -> 원인 분석 -> 의사결정·해결 -> 결과] 흐름으로 작성하는 실행 에이전트. Java/Spring/Redis 환경 현실 팩트 기반. 원인 분석·Trade-off 섹션은 서술형 허용으로 몰입감 확보, 나머지는 개조식. 이모지·AI 상투어 금지. <example>Context: doc-maestro 가 Redis+Lua 멱등성 이슈를 worker 에 위임. user: \"docs/troubleshooting/01-redis-lua.md 작성 — Lua 보상 스크립트 도입 서사\" assistant: \"Agent 도구로 doc-troubleshooting-worker 를 호출. 위임 프롬프트에 로그·증상·관련 commit/PR 번호 전달.\" <commentary>단일 트러블슈팅 1건 작성은 이 워커의 정확한 역할.</commentary></example> <example>Context: AI 하네스 파이프라인 통제 이슈 문서화. user: \"docs/troubleshooting/03-ai-harness.md — 자율 worker 가 plan/before 건너뛴 사건 정리\" assistant: \"doc-troubleshooting-worker 로 위임 — 원인 분석·Trade-off 줄글 허용 + 흐름 4단계 엄수.\" <commentary>AI 통제 이슈도 동일 흐름으로 작성.</commentary></example>"
 model: haiku
