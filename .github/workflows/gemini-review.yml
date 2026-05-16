@@ -41,9 +41,12 @@ jobs:
           fi
           # Reproduce the previous paths-ignore filter inline.
           # A file is "ignored" if it matches any of these patterns:
-          #   **/*.md, plan/**, reports/**, .claude/**, .gitignore,
+          #   **/*.md, plan/**, reports/**, .gitignore,
           #   .claudeignore, .gitattributes, LICENSE
-          IGNORE_REGEX='(\.md$|^plan/|^reports/|^\.claude/|^\.gitignore$|^\.claudeignore$|^\.gitattributes$|^LICENSE$)'
+          # NOTE: .claude/** was previously ignored but now triggers a review —
+          # hook/agent changes deserve scrutiny too, and an empty-diff filter
+          # below (RAW_DIFF) prevents noise when those are the only changes.
+          IGNORE_REGEX='(\.md$|^plan/|^reports/|^\.gitignore$|^\.claudeignore$|^\.gitattributes$|^LICENSE$)'
           SHOULD_RUN=false
           while IFS= read -r f; do
             [ -z "$f" ] && continue
@@ -67,7 +70,9 @@ jobs:
           set -euo pipefail
           BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
           git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
-          RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/**' ':(exclude)plan/**' ':(exclude)reports/**' || true)
+          # 자기참조(gemini-review.yml)만 제외. `.github/**` 통째 제외는 workflow
+          # 변경 PR(예: PR #90)이 빈 diff 를 받아 'PR 누락' P0 false-positive 를 유발했음.
+          RAW_DIFF=$(git diff "$BASE_REF...HEAD" -- ':(exclude).github/workflows/gemini-review.yml' ':(exclude)plan/**' ':(exclude)reports/**' || true)
           # 이전 구현은 `printf '%s' "$RAW_DIFF" | wc -c` 였으나, `set -o pipefail` + 큰 RAW_DIFF 조합에서 printf 가 SIGPIPE 를 받아 워크플로 자체가 실패하는 케이스가 PR #1 에서 발견됨. bash 내장 `${#var}` 로 pipe 없이 길이 측정해 우회.
           TOTAL_CHARS=${#RAW_DIFF}
           if [ "$TOTAL_CHARS" -gt "$CUTOFF_CHARS" ]; then
