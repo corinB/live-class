@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# .clone/, reports/14_*, reports/20_*, reports/27_*, docs/engineering/* 같은 알려진 잔재만 정리하는 스크립트 (default: --dry-run)
+# .clone/, reports/20_* 같은 알려진 untracked 잔재만 정리하는 스크립트 (default: --dry-run)
 set -euo pipefail
 
 MODE="dry-run"
@@ -28,13 +28,11 @@ fi
 cd "$REPO_ROOT"
 
 # Hard-coded allowlist of glob patterns (relative to repo root).
-# docs/engineering/ is intentionally absent: NN 38 migrates it to wiki-src/ko/docs/engineering/.
-# After NN 38 merges, docs/engineering/ will be empty/absent.
+# Only untracked leftovers go here. Tracked report files (reports/14_*, reports/27_*)
+# are intentionally absent — git ls-files --error-unmatch would refuse them anyway.
 PATTERNS=(
   ".clone/worktrees"
-  "reports/14_*.md"
   "reports/20_*.md"
-  "reports/27_*.md"
 )
 
 # Prefixes that are absolutely off-limits.
