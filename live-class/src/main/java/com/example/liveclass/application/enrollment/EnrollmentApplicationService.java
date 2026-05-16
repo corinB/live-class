@@ -13,7 +13,6 @@ import com.example.liveclass.domain.enrollment.Enrollment;
 import com.example.liveclass.domain.enrollment.EnrollmentNotFoundException;
 import com.example.liveclass.domain.enrollment.EnrollmentRepository;
 import com.example.liveclass.domain.enrollment.EnrollmentStatus;
-import com.example.liveclass.domain.enrollment.OutsideCancellationWindowException;
 import com.example.liveclass.domain.enrollment.event.EnrollmentCancelledEvent;
 import com.example.liveclass.domain.enrollment.event.EnrollmentConfirmedEvent;
 import com.example.liveclass.domain.enrollment.event.EnrollmentCreatedEvent;
@@ -197,16 +196,12 @@ public class EnrollmentApplicationService {
             throw new AccessDeniedDomainException("You do not own this enrollment");
         }
 
-        // Idempotent: already cancelled
+        // Idempotent: already cancelled (HTTP 200 응답 결정은 application 책임)
         if (e.getStatus() == EnrollmentStatus.CANCELLED) {
             return EnrollmentResponse.from(e);
         }
 
-        // 7-day window check for CONFIRMED
-        if (e.getStatus() == EnrollmentStatus.CONFIRMED && !e.isWithinCancellationWindow(now)) {
-            throw new OutsideCancellationWindowException();
-        }
-
+        // 7-day window 검증은 도메인 메서드(Enrollment#cancel)가 동일 예외를 던지므로 중복 제거.
         EnrollmentStatus previousStatus = e.getStatus();
         boolean wasConfirmed = previousStatus == EnrollmentStatus.CONFIRMED;
         UUID classId = e.getClassId();

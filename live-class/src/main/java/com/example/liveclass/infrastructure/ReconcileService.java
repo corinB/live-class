@@ -1,6 +1,7 @@
 // 부팅 및 admin 요청 시 Redis ZSET 을 DB 활성 enrollment 로부터 재구성하는 서비스.
 package com.example.liveclass.infrastructure;
 
+import com.example.liveclass.application.enrollment.EnrollmentMirrorService;
 import com.example.liveclass.domain.clazz.Class;
 import com.example.liveclass.domain.clazz.ClassRepository;
 import com.example.liveclass.domain.enrollment.Enrollment;
@@ -44,7 +45,7 @@ public class ReconcileService {
     /**
      * DB 활성 enrollment 를 바탕으로 ZSET 과 class:status mirror 를 재구성한다.
      * DEL + 배치 ZADD 패턴으로 멱등성을 보장한다.
-     * score = epochSec * 1_000_000_000L + nano (apply Lua 와 동일 공식)
+     * score = epochSec * 1_000_000_000L + nano (EnrollmentMirrorService.scoreOf 와 동일 공식)
      *
      * 동시성 보호 — classId 별 `lock:reconcile:{classId}` 분산락을 ClassLockService 를 통해 획득한 뒤에만
      * 본체를 수행한다. 같은 락을 apply / cancel 도 공유하므로, reconcile 가 진행 중이면 apply/cancel 은
@@ -71,7 +72,7 @@ public class ReconcileService {
         if (!enrolled.isEmpty()) {
             Set<ZSetOperations.TypedTuple<String>> enrolledTuples = new HashSet<>();
             for (Enrollment e : enrolled) {
-                long score = scoreOf(e.getAppliedAt().getEpochSecond(), e.getAppliedAt().getNano());
+                long score = EnrollmentMirrorService.scoreOf(e.getAppliedAt());
                 enrolledTuples.add(ZSetOperations.TypedTuple.of(e.getClassmateId().toString(), (double) score));
             }
             redisTemplate.opsForZSet().add(enrolledKey, enrolledTuples);
@@ -84,7 +85,7 @@ public class ReconcileService {
         if (!waitlisted.isEmpty()) {
             Set<ZSetOperations.TypedTuple<String>> waitlistTuples = new HashSet<>();
             for (Enrollment e : waitlisted) {
-                long score = scoreOf(e.getAppliedAt().getEpochSecond(), e.getAppliedAt().getNano());
+                long score = EnrollmentMirrorService.scoreOf(e.getAppliedAt());
                 waitlistTuples.add(ZSetOperations.TypedTuple.of(e.getClassmateId().toString(), (double) score));
             }
             redisTemplate.opsForZSet().add(waitlistKey, waitlistTuples);
@@ -96,14 +97,5 @@ public class ReconcileService {
         redisTemplate.opsForValue().set(RedisKeyFactory.classStatus(classId), clazz.getStatus().name(), Duration.ofMinutes(5));
 
         log.info("reconciled classId={}, enrolled={}, waitlist={}", classId, enrolled.size(), waitlisted.size());
-    }
-
-    /**
-     * apply Lua 와 동일한 score 공식.
-     * Issue #55 에서 EnrollmentMirrorService.scoreOf(Instant) 로 추출 예정.
-     * 그 전까지는 local helper 로 임시 운용.
-     */
-    static long scoreOf(long epochSec, int nano) {
-        return epochSec * 1_000_000_000L + nano;
     }
 }
