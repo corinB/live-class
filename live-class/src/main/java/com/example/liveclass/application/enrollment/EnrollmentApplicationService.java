@@ -178,6 +178,9 @@ public class EnrollmentApplicationService {
      * 락 충돌 시 ClassLockBusyException 으로 503 매핑.
      */
     public EnrollmentResponse cancel(UUID enrollmentId, UUID classmateId, Instant now) {
+        // pre-fetch 와 락 획득 사이에 enrollment 가 다른 트랜잭션에서 DELETE 되는 극저빈도 엣지
+        // 케이스가 존재한다 (Gemini PR #92 후속 P2). 그 경우 락 진입 후 cancelInTx 에서
+        // EnrollmentNotFoundException 으로 안전 실패 — 의도된 동작이다.
         UUID classId = enrollmentRepository.findById(enrollmentId)
                 .map(Enrollment::getClassId)
                 .orElseThrow(EnrollmentNotFoundException::new);
