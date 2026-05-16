@@ -66,6 +66,45 @@ graph TD
 - **원칙**: 창의적 일탈 0. 설계는 `DOCS.md`·`ARCHITECTURE.md`가 절대 출처.
 - **막히면**: 네 입력(`DOCS.md`·`ARCHITECTURE.md`·작업 명세·worktree 경로) 중 하나라도 부재 시 STOP.
 
+## 보조 에이전트 — 리팩토링·문서 (2026-05-16 추가)
+
+### `refactoring-maestro` — 리팩토링 오케스트레이션
+
+- **언제 부르나**: 전체 코드베이스의 리팩토링 사이클을 돌릴 때. `/evolution` 스킬이 직접 호출.
+- **출력**: `reports/refactoring/maestro-summary-<YYYY-MM-DD>.md` + 호출자 보고. 도메인 모듈 인벤토리 / 워커 결과 취합 / P0·P1·P2·반려 분류.
+- **내부 동작**: 도메인 경계 식별 → 모듈마다 `refactoring-worker` 병렬 디스패치 → 결과 취합·중복 제거·오버엔지 컷.
+- **모델**: opus.
+- **막히면**: 도메인 경계가 코드 구조로 식별 불가 → `context.yaml.business_context.domains` 갱신 요청.
+
+### `refactoring-worker` — 단일 모듈 5 기준 스캔
+
+- **언제 부르나**: maestro 가 단일 도메인 모듈을 할당했을 때.
+- **출력**: `대상 위치 / 문제점 / 개선안` 포맷의 리포트.
+- **5 기준**: Rich Enum 전환 / 도메인 모델(Entity·VO) 로직 이동 / Common 모듈 의존성 제거 / 코드 최적화(Stream 등) / 주석 직관성 개선.
+- **자체 컷 룰**: 단일 사용 인터페이스·추상화·"더 유연한 구조" 추측성 일반화 등 출력 단계에서 제외.
+- **모델**: sonnet.
+
+### `doc-maestro` — README + 상세 문서 오케스트레이션
+
+- **언제 부르나**: 면접관 평가용 README + 상세 문서 세트를 일괄 생성·갱신할 때. `/business-card-production` 스킬이 직접 호출.
+- **출력**: `README.md` 12 섹션 직접 작성 + 상세 문서 8건 위임 결과 검수.
+- **내부 동작**: `doc-worker` × 4 (api/erd/architecture/cicd) + `doc-troubleshooting-worker` × 4 단일 메시지 다중 `Agent` 호출로 병렬 디스패치.
+- **모델**: opus.
+- **공통 규칙**: 자의적 추론·이모지·AI 상투어 금지. 개조식 우선. 시각화 극대화.
+
+### `doc-worker` — 단일 일반 기술 문서 작성
+
+- **언제 부르나**: maestro 가 단일 기술 문서(api / erd / architecture / cicd) 1건을 할당했을 때.
+- **출력**: 표·Mermaid·동작 가능한 Java/Spring 코드 중심 마크다운 1건.
+- **모델**: haiku.
+
+### `doc-troubleshooting-worker` — 단일 트러블슈팅 문서 작성
+
+- **언제 부르나**: maestro 가 단일 트러블슈팅 이슈 1건을 할당했을 때.
+- **출력**: 4단계 흐름 (문제 상황 / 원인 분석 / 의사결정·해결 / 결과). 원인 분석·Trade-off 만 서술형 허용.
+- **현실 팩트 기반**: Java/Spring/Redis 환경에서 실제 발생 가능. 가상의 시나리오 금지.
+- **모델**: haiku.
+
 ## 호출 매칭
 
 | 작업 | 에이전트 | 스킬 |
