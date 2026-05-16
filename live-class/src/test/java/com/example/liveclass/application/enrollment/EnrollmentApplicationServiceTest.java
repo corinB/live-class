@@ -281,11 +281,13 @@ class EnrollmentApplicationServiceTest {
     }
 
     /**
-     * 두 apply 가 같은 classId 에 동시에 들어오면 한쪽만 락을 쥐고 진행, 다른 한쪽은
-     * ClassLockBusyException 으로 503 (재시도 권장). CountDownLatch 로 starting gun.
+     * 외부 holder(`starter`)가 락을 잡고 있는 동안 두 apply 가 동시에 들어오면 둘 다 즉시
+     * ClassLockBusyException 으로 떨어진다. starter 락 만료 후 새 apply 는 통과한다. CountDownLatch
+     * 로 starting gun. 본 테스트는 외부 락 존재 상황을 검증하며, starter 락 없이 두 apply 가 진짜
+     * race 하는 경우(정확히 한쪽 성공·한쪽 실패)는 별도 follow-up 으로 추가 예정.
      */
     @Test
-    void classLock_contention_oneApplySucceeds_otherRejected() throws Exception {
+    void classLock_contention_bothRejected_whenLockHeldByStarter() throws Exception {
         Class clazz = persistOpenClass(10);
         stringRedisTemplate.delete("enrolled:" + clazz.getId());
 
