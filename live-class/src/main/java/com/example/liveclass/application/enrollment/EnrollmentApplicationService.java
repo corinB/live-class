@@ -178,6 +178,9 @@ public class EnrollmentApplicationService {
      * 락 충돌 시 ClassLockBusyException 으로 503 매핑.
      */
     public EnrollmentResponse cancel(UUID enrollmentId, UUID classmateId, Instant now) {
+        // pre-fetch 와 락 획득 사이에 enrollment 가 다른 트랜잭션에서 DELETE 되는 극저빈도 엣지
+        // 케이스가 존재한다 (Gemini PR #92 후속 P2). 그 경우 락 진입 후 cancelInTx 에서
+        // EnrollmentNotFoundException 으로 안전 실패 — 의도된 동작이다.
         UUID classId = enrollmentRepository.findById(enrollmentId)
                 .map(Enrollment::getClassId)
                 .orElseThrow(EnrollmentNotFoundException::new);
@@ -221,16 +224,12 @@ public class EnrollmentApplicationService {
             throw ex;
         }
 
-        // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled
-        // Return shape: [cancellerScore, promotedId, promotedScore] — fixed length 3.
-        // promotedId/promotedScore are empty strings when no waitlist promotion occurred.
-        List<String> luaResult = mirrorService.cancelAndMaybePromote(classId, classmateId, wasConfirmed);
+        // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled.
+        LuaCancelResult result = LuaCancelResult.from(
+                mirrorService.cancelAndMaybePromote(classId, classmateId, wasConfirmed));
 
-        if (luaResult != null && luaResult.size() >= 3 && !luaResult.get(1).isEmpty()) {
-            String cancellerScoreStr = luaResult.get(0);
-            double cancellerScore = cancellerScoreStr.isEmpty() ? 0.0 : Double.parseDouble(cancellerScoreStr);
-            UUID promotedClassmateId = UUID.fromString(luaResult.get(1));
-            long promotedScore = Long.parseLong(luaResult.get(2));
+        if (result.hasPromotion()) {
+            UUID promotedClassmateId = result.promotedId();
 
             Enrollment promoted = enrollmentRepository.findActiveByClassAndClassmate(classId, promotedClassmateId)
                     .orElseThrow(EnrollmentNotFoundException::new);
@@ -242,7 +241,7 @@ public class EnrollmentApplicationService {
                 // DB UPDATE failed — reverse the Lua ZSET changes, restoring the canceller
                 // to its ORIGINAL score so waitlist FIFO order is preserved.
                 mirrorService.reverseCancelPromote(classId, classmateId, promotedClassmateId,
-                        cancellerScore, promotedScore);
+                        result.cancellerScore(), result.promotedScore());
                 throw ex;
             }
 
@@ -261,5 +260,35 @@ public class EnrollmentApplicationService {
             return new DuplicateEnrollmentException();
         }
         return ex;
+    }
+
+    /**
+     * `enrollment_cancel_promote.lua` 의 return shape — 고정 길이 3
+     * `[cancellerScore, promotedId, promotedScore]`. promotion 없으면 promotedId/Score 가
+     * 빈 문자열, canceller 가 enrolled 에 없었으면 cancellerScore 도 빈 문자열.
+     * 인덱스 직접 접근 대신 record + factory 로 파싱 책임을 한 곳에 모은다 (Gemini PR #93 P2).
+     *
+     * 파싱 계약: cancellerScore 는 ZSCORE 결과(숫자) 또는 ""; promotedId 는 UUID toString
+     * 결과 또는 ""; promotedScore 는 ZPOPMIN score(정수 문자열) 또는 "". 본 가정은
+     * `enrollment_cancel_promote.lua` 첫 줄 주석과 짝이 되며 — 그 파일이 변경될 때마다
+     * here 의 파싱 로직도 함께 업데이트해야 한다. 가정 이탈 시 NumberFormatException /
+     * IllegalArgumentException 이 호출자(`cancelInTx`)까지 그대로 전파되어 503 매핑된다
+     * (Gemini PR #97 P2 — try-catch 방어 대신 호출 계약을 명시).
+     */
+    private record LuaCancelResult(double cancellerScore, UUID promotedId, long promotedScore, boolean hasPromotion) {
+        static LuaCancelResult from(List<String> raw) {
+            if (raw == null || raw.size() < 3) {
+                return new LuaCancelResult(0.0, null, 0L, false);
+            }
+            String cs = raw.get(0);
+            double cancellerScore = cs.isEmpty() ? 0.0 : Double.parseDouble(cs);
+            String pidStr = raw.get(1);
+            if (pidStr.isEmpty()) {
+                return new LuaCancelResult(cancellerScore, null, 0L, false);
+            }
+            UUID promotedId = UUID.fromString(pidStr);
+            long promotedScore = Long.parseLong(raw.get(2));
+            return new LuaCancelResult(cancellerScore, promotedId, promotedScore, true);
+        }
     }
 }

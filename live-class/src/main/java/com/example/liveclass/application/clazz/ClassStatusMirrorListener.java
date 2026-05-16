@@ -4,17 +4,18 @@ package com.example.liveclass.application.clazz;
 import com.example.liveclass.domain.clazz.ClassStatus;
 import com.example.liveclass.domain.clazz.event.ClassClosedEvent;
 import com.example.liveclass.domain.clazz.event.ClassOpenedEvent;
+import com.example.liveclass.infrastructure.RedisKeyFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
+import java.util.UUID;
 
 @Component
 public class ClassStatusMirrorListener {
 
-    private static final String KEY_PREFIX = "class:status:";
     private static final Duration TTL = Duration.ofMinutes(5);
 
     private final StringRedisTemplate redisTemplate;
@@ -25,15 +26,15 @@ public class ClassStatusMirrorListener {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onOpened(ClassOpenedEvent event) {
-        write(event.classId().value().toString(), ClassStatus.OPEN);
+        write(event.classId().value(), ClassStatus.OPEN);
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onClosed(ClassClosedEvent event) {
-        write(event.classId().value().toString(), ClassStatus.CLOSED);
+        write(event.classId().value(), ClassStatus.CLOSED);
     }
 
-    private void write(String classId, ClassStatus status) {
-        redisTemplate.opsForValue().set(KEY_PREFIX + classId, status.name(), TTL);
+    private void write(UUID classId, ClassStatus status) {
+        redisTemplate.opsForValue().set(RedisKeyFactory.classStatus(classId), status.name(), TTL);
     }
 }
