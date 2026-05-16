@@ -396,13 +396,15 @@ sequenceDiagram
 - **정책 — Fail-closed**. Lua 호출 실패 시 application service 는 **즉시 503** 을 반환한다. DB 만으로 결정하는 fallback 경로를 두지 않는다.
 - **GlobalExceptionHandler 매핑** — Redis 한정 예외 두 가지만 좁게 503 으로 변환 (DB 장애는 catch-all 500 으로 두어 운영 진단 가능).
 
-| 예외 | 출처 | 매핑 | errorCode |
-|---|---|---|---|
-| `RedisConnectionFailureException` | Spring Data Redis | 503 | `MIRROR_UNAVAILABLE` |
-| `QueryTimeoutException` | Spring Data Redis (Lettuce 타임아웃) | 503 | `MIRROR_UNAVAILABLE` |
-| `MirrorUnavailableException` | `EnrollmentMirrorService` 자체 catch | 503 | `MIRROR_UNAVAILABLE` |
-| `ClassLockBusyException` | `ClassLockService.executeWithLock` | 503 | `CLASS_LOCK_BUSY` |
-| `OptimisticLockingFailureException` | JPA `@Version` 충돌 | 409 | `OPTIMISTIC_LOCK_FAILURE` |
+| 예외 | 출처 | 매핑 | errorCode | 검증 |
+|---|---|---|---|---|
+| `RedisConnectionFailureException` | Spring Data Redis | 503 | `MIRROR_UNAVAILABLE` | `RedisDisconnectFailClosedTest`, `GlobalExceptionHandlerTest` |
+| `QueryTimeoutException` | Spring Data Redis (Lettuce 타임아웃) | 503 | `MIRROR_UNAVAILABLE` | `GlobalExceptionHandlerTest` |
+| `MirrorUnavailableException` | `EnrollmentMirrorService` 자체 catch | 503 | `MIRROR_UNAVAILABLE` | `EnrollmentControllerSliceTest` |
+| `ClassLockBusyException` | `ClassLockService.executeWithLock` | 503 | `CLASS_LOCK_BUSY` | `GlobalExceptionHandlerTest` |
+| `OptimisticLockingFailureException` | JPA `@Version` 충돌 | 409 | `OPTIMISTIC_LOCK_FAILURE` | `ClassOptimisticLockTest` |
+
+§2.1·§2.2·§2.3·§2.4 의 race-critical 시나리오는 각각 `LastSeatRaceConcurrencyTest` / `WaitlistPromotionConcurrencyTest` + `EnrollmentCancelCompensationTest` + `LuaCompensationAtomicityTest` / `CancelDoubleClickConcurrencyTest` / `ClassOptimisticLockTest` 로 회귀 보호한다. Reconcile ↔ enrollment 동시 race 는 `ReconcileServiceIntegrationTest` + `ReconcileTest` 가 본 lock 키 공유 동작을 검증.
 
 - **복구** — Redis 가 다시 살아나면 §7.7 의 reconcile 절차가 부팅 시점에 ZSET 을 재구성한다.
 

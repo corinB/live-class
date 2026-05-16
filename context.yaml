@@ -214,7 +214,7 @@ metadata:
   primary_branch: "main"
   related_docs:
     - {path: "DOCS.md", description: "Domain design (DDD, 85 lines)"}
-    - {path: "ARCHITECTURE.md", description: "Concurrency design (86 lines)"}
+    - {path: "ARCHITECTURE.md", description: "Concurrency design (87 lines)"}
     - {path: "ORCHESTRATION.md", description: "Multi-agent pipeline policy (human-driven 6 agents + automation 2 agents)"}
     - {path: "wiki-src/ko/docs/agents/agents.md", description: "Catalog of 8 internal subagents plus the external Codex delegation"}
     - {path: "wiki-src/ko/docs/agents/skills.md", description: "Catalog of 6 slash skills plus utility skills"}

@@ -25,13 +25,14 @@ Tradeoff: dual source-of-truth (DB + Redis ZSET) requires 3-layer defense:
 
 ## Concurrency Scenarios
 
-| Scenario | Mechanism |
-|---|---|
-| Last-seat race (`§2.1`) | `ClassLockService.executeWithLock(classId)` outer-wrap (Redis `SET NX PX`, 30 s TTL, token-based safe-unlock) → `enrollment_apply.lua` ZCARD vs capacity branch → ZADD enrolled or waitlist. Lock busy → `ClassLockBusyException` → 503 (`CLASS_LOCK_BUSY`). |
-| Double-promotion prevention (`§2.2`) | Same outer-wrap on `cancel()` → `enrollment_cancel_promote.lua` atomic ZREM + ZPOPMIN + ZADD in one call. |
-| 7-day cancellation window (`§2.3`) | `Enrollment.cancel(now)` domain method enforces `paidAt + 7 d` on the CONFIRMED branch and idempotent handling on already-CANCELLED; `@Version` optimistic lock on the Enrollment row stops concurrent cancels. |
-| State transition integrity (`§2.4`) | `@Version` on Class row with 1-retry on optimistic lock conflict; Quartz auto-close and Creator manual close race resolved by OL. |
-| Reconcile vs enrollment race | `ClassLockService.tryRun(classId)` shares the same lock key — a concurrent enrollment forces reconcile to skip (false return), and a running reconcile forces enrollment to 503. |
+| Scenario | Mechanism | Verified by |
+|---|---|---|
+| Last-seat race (`§2.1`) | `ClassLockService.executeWithLock(classId)` outer-wrap (Redis `SET NX PX`, 30 s TTL, token-based safe-unlock) → `enrollment_apply.lua` ZCARD vs capacity branch → ZADD enrolled or waitlist. Lock busy → `ClassLockBusyException` → 503 (`CLASS_LOCK_BUSY`). | `LastSeatRaceConcurrencyTest` |
+| Double-promotion prevention (`§2.2`) | Same outer-wrap on `cancel()` → `enrollment_cancel_promote.lua` atomic ZREM + ZPOPMIN + ZADD in one call. | `WaitlistPromotionConcurrencyTest`, `EnrollmentCancelCompensationTest`, `LuaCompensationAtomicityTest` |
+| 7-day cancellation window (`§2.3`) | `Enrollment.cancel(now)` domain method enforces `paidAt + 7 d` on the CONFIRMED branch and idempotent handling on already-CANCELLED; `@Version` optimistic lock on the Enrollment row stops concurrent cancels. | `CancelDoubleClickConcurrencyTest` |
+| State transition integrity (`§2.4`) | `@Version` on Class row with 1-retry on optimistic lock conflict; Quartz auto-close and Creator manual close race resolved by OL. | `ClassOptimisticLockTest` |
+| Reconcile vs enrollment race | `ClassLockService.tryRun(classId)` shares the same lock key — a concurrent enrollment forces reconcile to skip (false return), and a running reconcile forces enrollment to 503. | `ReconcileServiceIntegrationTest`, `ReconcileTest` |
+| Redis-down fail-closed | `GlobalExceptionHandler` maps `QueryTimeoutException` / `RedisConnectionFailureException` / `ClassLockBusyException` to 503 (consistency-first). | `RedisDisconnectFailClosedTest`, `GlobalExceptionHandlerTest` |
 
 ## Redis Key Convention
 
