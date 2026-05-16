@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-# context.yaml의 stale 항목(날짜·라인 수·related_docs 부재)을 감지해 drift 목록을 출력하는 진단 스크립트
-"""Audit context.yaml for staleness against the actual workspace state.
+# context.yaml의 schema v3 정합성(노드 id 유일성·네이밍·relationships 트리플)과 stale 항목(last_indexed/wc/path)을 검사하는 진단 스크립트
+"""Audit context.yaml for graph schema v3 integrity and staleness.
 
 Checks performed:
-1. metadata.last_indexed == today (KST date).
-2. metadata.related_docs[*].description containing "N lines" matches the
+1. `schema_version` must equal 3. Lower versions print a migration hint.
+2. Every dict node bearing an `id` key:
+   - id is unique across the whole document.
+   - id matches `^(domain|state|script|mirror|api|agent|skill|workflow|dir|external|invariant|term|principle|policy|doc|project|automation)/[a-z0-9_/]+$`.
+3. `relationships` (when present) is a list of triples `{from, to, type}`:
+   - `type` is in the closed vocabulary.
+   - `from` and `to` resolve to known ids.
+4. metadata.last_indexed == today (KST date).
+5. metadata.related_docs[*].description containing "N lines" matches the
    real `wc -l` count of the referenced markdown.
-3. Each metadata.related_docs[*].path exists on disk, with one explicit
+6. Each metadata.related_docs[*].path exists on disk, with one explicit
    exception: a path whose basename is README.md is allowed to be absent
-   if its description contains a "(... 작성 예정)" note. The pending-note
-   exemption does NOT apply to any other path — a missing DOCS.md or
-   ARCHITECTURE.md is always drift, even if its description mentions
-   "예정".
+   if its description contains a "(... 작성 예정)" note.
 
 Exit code 0 = no drift, 1 = drift found, 2 = configuration error.
 """
@@ -34,6 +38,19 @@ CONTEXT_PATH = REPO_ROOT / "context.yaml"
 LINE_COUNT_RE = re.compile(r"(\d+)\s*lines")
 PENDING_NOTE_RE = re.compile(r"작성\s*예정")
 
+ID_TYPES = (
+    "domain", "state", "script", "mirror", "api", "agent", "skill",
+    "workflow", "dir", "external", "invariant", "term", "principle",
+    "policy", "doc", "project", "automation",
+)
+ID_RE = re.compile(r"^(" + "|".join(ID_TYPES) + r")/[a-z0-9_/]+$")
+
+REL_TYPES = {
+    "contains", "transitions_to", "enforced_by", "mitigated_by",
+    "writes", "reads", "mirrors", "scopes", "triggered_by",
+    "owns", "chains", "depends_on", "ref",
+}
+
 
 def today_iso() -> str:
     return datetime.date.today().isoformat()
@@ -46,8 +63,64 @@ def count_lines(path: Path) -> int | None:
         return sum(1 for _ in fh)
 
 
+def walk_ids(node, ids: dict[str, list[str]], path: list[str]) -> None:
+    """Collect every `id` value found inside any dict node, anywhere."""
+    if isinstance(node, dict):
+        if "id" in node and isinstance(node["id"], str):
+            ids.setdefault(node["id"], []).append("/".join(path) or "<root>")
+        for key, value in node.items():
+            walk_ids(value, ids, path + [str(key)])
+    elif isinstance(node, list):
+        for i, item in enumerate(node):
+            walk_ids(item, ids, path + [str(i)])
+
+
 def audit(doc: dict) -> list[str]:
     drifts: list[str] = []
+
+    schema = doc.get("schema_version")
+    if schema != 3:
+        drifts.append(
+            f"schema_version: got {schema!r}, expected 3. "
+            "Migrate by adding id: to every node and a top-level relationships: triples list."
+        )
+        return drifts
+
+    ids: dict[str, list[str]] = {}
+    walk_ids(doc, ids, [])
+    for node_id, locations in ids.items():
+        if len(locations) > 1:
+            drifts.append(
+                f"id collision: {node_id!r} appears at {len(locations)} locations: "
+                f"{', '.join(locations)}"
+            )
+        if not ID_RE.match(node_id):
+            drifts.append(
+                f"id naming: {node_id!r} does not match "
+                f"<type>/<slug> where type in {sorted(ID_TYPES)}"
+            )
+
+    known_ids = set(ids.keys())
+    relationships = doc.get("relationships") or []
+    if not isinstance(relationships, list):
+        drifts.append("relationships: must be a list of {from, to, type}")
+    else:
+        for idx, rel in enumerate(relationships):
+            if not isinstance(rel, dict):
+                drifts.append(f"relationships[{idx}]: not a mapping")
+                continue
+            rtype = rel.get("type")
+            rfrom = rel.get("from")
+            rto = rel.get("to")
+            if rtype not in REL_TYPES:
+                drifts.append(
+                    f"relationships[{idx}].type: {rtype!r} not in vocabulary "
+                    f"{sorted(REL_TYPES)}"
+                )
+            if rfrom not in known_ids:
+                drifts.append(f"relationships[{idx}].from: unknown id {rfrom!r}")
+            if rto not in known_ids:
+                drifts.append(f"relationships[{idx}].to: unknown id {rto!r}")
 
     metadata = doc.get("metadata") or {}
     last_indexed = metadata.get("last_indexed")
