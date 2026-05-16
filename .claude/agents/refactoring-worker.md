@@ -1,4 +1,4 @@
-﻿---
+---
 name: "refactoring-worker"
 description: "refactoring-maestro 가 할당한 단일 도메인 모듈을 스캔해 5가지 기준(Rich Enum 전환 / 도메인 모델 로직 이동 / Common 의존성 제거 / 코드 최적화 / 주석 직관성)으로 리팩토링 타겟을 식별·보고하는 실행 에이전트. 코드 수정 금지 — 스캔 + 리포트만 작성. 오버엔지 후보는 출력 단계에서 자체 컷. <example>Context: refactoring-maestro 가 `domain/enrollment` 모듈을 worker 에 할당. user: \"live-class/src/main/java/com/example/liveclass/domain/enrollment/ 모듈을 5 기준으로 스캔해줘\" assistant: \"Agent 도구로 refactoring-worker 를 호출. 워커는 해당 모듈을 읽고 Rich Enum 후보, 도메인 로직 이동 후보, Common 의존성, 장황한 Stream 변환, 주석 정리 후보를 식별해 리포트 반환한다.\" <commentary>단일 모듈 스캔 + 5 기준 출력은 refactoring-worker 의 정확한 역할.</commentary></example> <example>Context: Maestro 없이 사용자가 직접 단일 모듈 점검을 요청. user: \"domain/clazz 만 빠르게 스캔해줘\" assistant: \"refactoring-worker 를 단일 모듈에 호출. Maestro 없이 직접 결과 반환.\" <commentary>Maestro 경유가 아니어도 단일 모듈 스캔 의뢰는 worker 가 처리.</commentary></example>"
 model: sonnet

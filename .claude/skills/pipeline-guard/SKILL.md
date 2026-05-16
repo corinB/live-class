@@ -1,4 +1,4 @@
-﻿---
+---
 name: pipeline-guard
 description: 최근 변경(default 최근 commit/PR diff, 인자로 파일 리스트 전달 가능)이 5축 — hooks / GitHub Wiki / tests / GitHub Actions workflows / context.yaml — 에 영향을 주는지 검증한다. 영향 발견 시 EnterPlanMode 자동 호출 → 축별 반영 계획 plan 파일 작성 → ExitPlanMode → 사용자 승인 후 메인 세션이 직접 동기화. wiki·context.yaml 은 코드 정합 갱신(검증+동기화), hook·workflows·tests 는 변경 사항 반영(보강). 사용자 명시 호출 또는 /evolution·/business-card-production 의 자동 체이닝에서만 동작.
 ---

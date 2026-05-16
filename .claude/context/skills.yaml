@@ -3,32 +3,32 @@ imported_by: context.yaml
 
 skills_catalog:
   - id: skill/pipeline_guard
-    path: ".claude/skills/pipeline-guard.md"
+    path: ".claude/skills/pipeline-guard/SKILL.md"
     role: "5-axis impact scan (hooks / wiki / tests / workflows / context.yaml) auto-enters plan mode on impact."
   - id: skill/evolution
-    path: ".claude/skills/evolution.md"
+    path: ".claude/skills/evolution/SKILL.md"
     role: "Refactor cycle wrapping ask-and-delegate, refactoring-maestro, pipeline-guard chaining."
   - id: skill/business_card_production
-    path: ".claude/skills/business-card-production.md"
+    path: ".claude/skills/business-card-production/SKILL.md"
     role: "doc-maestro dispatch + pipeline-guard chaining (README 12 sections + 8 detail docs)."
   - id: skill/sync_context_wiki
-    path: ".claude/skills/sync-context-wiki.md"
+    path: ".claude/skills/sync-context-wiki/SKILL.md"
     role: "Sync context.yaml + wiki-src/ko via context-yaml-maestro + pipeline-guard chaining."
   - id: skill/design_domain
-    path: ".claude/skills/design-domain.md"
+    path: ".claude/skills/design-domain/SKILL.md"
     role: "DDD domain model design wrapper (ddd-domain-architect)."
   - id: skill/design_concurrency
-    path: ".claude/skills/design-concurrency.md"
+    path: ".claude/skills/design-concurrency/SKILL.md"
     role: "Concurrency control architecture wrapper (concurrency-architect)."
   - id: skill/decompose_tasks
-    path: ".claude/skills/decompose-tasks.md"
+    path: ".claude/skills/decompose-tasks/SKILL.md"
     role: "Sprint task decomposition wrapper (scrum-task-decomposer)."
   - id: skill/setup_infra
-    path: ".claude/skills/setup-infra.md"
+    path: ".claude/skills/setup-infra/SKILL.md"
     role: "Infra + CI/CD scaffolding wrapper (infra-cicd-operator)."
   - id: skill/setup_git_rules
-    path: ".claude/skills/setup-git-rules.md"
+    path: ".claude/skills/setup-git-rules/SKILL.md"
     role: "Git conventions setup wrapper (git-master-conventions)."
   - id: skill/exec_blueprint
-    path: ".claude/skills/exec-blueprint.md"
+    path: ".claude/skills/exec-blueprint/SKILL.md"
     role: "Blueprint executor wrapper (blueprint-executor-worker)."

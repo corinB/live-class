@@ -1,4 +1,4 @@
-﻿---
+---
 name: evolution
 description: 리팩토링 사이클 자동화. plan mode 진입 → ask-and-delegate 스킬로 요구사항 명세 → refactoring-maestro 1개 호출(내부에서 refactoring-worker 도메인별 병렬 디스패치) → 액션 적용 → pipeline-guard 5축 검증 자동 체이닝. 사용자가 /evolution 직접 호출했을 때만 동작.
 ---
