@@ -15,29 +15,29 @@
 
 ## Action Items (Checklist)
 
-- [ ] `src/test/java/com/example/liveclass/support/ConcurrencyTestSupport.java` — 헬퍼.
+- [x] `src/test/java/com/example/liveclass/support/ConcurrencyTestSupport.java` — 헬퍼.
   - `void runConcurrently(int threadCount, Runnable task)` — `ExecutorService` + `CountDownLatch`로 starting gun 패턴. 모든 스레드가 동시에 시작하도록 `CyclicBarrier` 사용.
   - 결과 집계 헬퍼 `Map<String, AtomicInteger>` (status별 카운트).
-- [ ] `application/enrollment/LastSeatRaceConcurrencyTest.java` — `@IntegrationTest`.
+- [x] `application/enrollment/LastSeatRaceConcurrencyTest.java` — `@IntegrationTest`.
   - `setUp()`: User CREATOR 1명 + Classmate 50명 생성, capacity=1 Class를 OPEN 상태로 준비.
   - `@RepeatedTest(10)` — 50 스레드가 동시에 `EnrollmentApplicationService.apply()` 호출.
   - 검증: `enrollmentRepository.countByClassIdAndStatus(classId, PENDING) == 1`, `WAITLISTED == 49`, `CANCELLED == 0`.
   - capacity=10 변형 케이스: PENDING == 10, WAITLISTED == 40.
-- [ ] `application/enrollment/CancelDoubleClickConcurrencyTest.java` — `@IntegrationTest`.
+- [x] `application/enrollment/CancelDoubleClickConcurrencyTest.java` — `@IntegrationTest`.
   - 같은 enrollment에 2 스레드가 동시 DELETE → 정확히 1건만 실제 상태 전이, 다른 1건은 멱등 응답. `Enrollment.version` 증가 1회.
-- [ ] `application/enrollment/WaitlistPromotionConcurrencyTest.java` — `@IntegrationTest`.
+- [x] `application/enrollment/WaitlistPromotionConcurrencyTest.java` — `@IntegrationTest`.
   - `setUp`: capacity=2, CONFIRMED 2건 + WAITLISTED 5건 (appliedAt 5개 서로 다름).
   - 2 스레드가 동시에 CONFIRMED 각각 cancel.
   - 검증: PENDING == 2 (승격된 두 명), WAITLISTED == 3, 승격된 두 명은 appliedAt이 가장 오래된 순서 2명.
   - `@RepeatedTest(10)`로 10회 연속 동일 결과 확인.
-- [ ] `application/enrollment/CancellationWindowBoundaryTest.java` — `@IntegrationTest`.
+- [x] `application/enrollment/CancellationWindowBoundaryTest.java` — `@IntegrationTest`.
   - `Clock` 빈을 `@MockBean`으로 주입하거나 `EnrollmentApplicationService.cancel(now)`에 `Instant` 명시 전달.
   - paidAt = t0, cancel at t0 + Duration.ofDays(7) → 200.
   - cancel at t0 + Duration.ofDays(7).plusNanos(1) → 422.
   - cancel at t0 + Duration.ofDays(6).plusHours(23) → 200.
-- [ ] (Verify) `LastSeatRaceConcurrencyTest`의 10회 반복 실행 시간이 30초 이내인지 확인 (CI 타임아웃 방지). ZCARD enrolled / waitlist 와 DB COUNT 가 매 반복 후 일치하는지 검증.
-- [ ] (Verify) 동시성 테스트에 `@Order` 또는 `@DirtiesContext`로 테스트 간 격리 보장. 각 `@RepeatedTest`는 자체 `setUp/tearDown`에서 enrollments 테이블 truncate **및 Redis FLUSHDB**.
-- [ ] (Verify) 부분 유니크 인덱스로 인해 동일 (classId, classmateId) 50번 중복 신청은 49번 `DuplicateEnrollmentException`임을 별도 테스트로 확인. Lua 의 ZSCORE 중복 검사가 1차, DB partial unique index 가 마지막 방어선.
-- [ ] (NEW) `RedisDisconnectFailClosedTest.java` — Testcontainers Redis 컨테이너를 테스트 도중 `stop()` 시킨 후 apply 호출 → 503 응답 확인. enrollments 테이블 row count 변동 없음.
-- [ ] (NEW) `LuaCompensationTest.java` — `@SpyBean` 으로 `EnrollmentRepository.save` 가 첫 호출에서 `RuntimeException` 을 던지도록 설정. apply 호출 → 예외 응답 확인 + `ZCARD enrolled` 가 호출 전 값과 동일 (보상 Lua 가 ZADD 를 되돌렸음).
-- [ ] (NEW) `ReconcileTest.java` — capacity=3 Class 에 PENDING 2, WAITLISTED 1 적재한 뒤 `redisTemplate.getConnectionFactory().getConnection().flushDb()` 실행 → `reconcileRunner.reconcile(classId)` 호출 → `ZCARD enrolled == 2` && `ZCARD waitlist == 1`. ZRANGE 의 score 순서가 DB appliedAt 순과 일치.
+- [x] (Verify) `LastSeatRaceConcurrencyTest`의 10회 반복 실행 시간이 30초 이내인지 확인 (CI 타임아웃 방지). ZCARD enrolled / waitlist 와 DB COUNT 가 매 반복 후 일치하는지 검증.
+- [x] (Verify) 동시성 테스트에 `@Order` 또는 `@DirtiesContext`로 테스트 간 격리 보장. 각 `@RepeatedTest`는 자체 `setUp/tearDown`에서 enrollments 테이블 truncate **및 Redis FLUSHDB**.
+- [x] (Verify) 부분 유니크 인덱스로 인해 동일 (classId, classmateId) 50번 중복 신청은 49번 `DuplicateEnrollmentException`임을 별도 테스트로 확인. Lua 의 ZSCORE 중복 검사가 1차, DB partial unique index 가 마지막 방어선.
+- [x] (NEW) `RedisDisconnectFailClosedTest.java` — Testcontainers Redis 컨테이너를 테스트 도중 `stop()` 시킨 후 apply 호출 → 503 응답 확인. enrollments 테이블 row count 변동 없음.
+- [x] (NEW) `LuaCompensationTest.java` — `@SpyBean` 으로 `EnrollmentRepository.save` 가 첫 호출에서 `RuntimeException` 을 던지도록 설정. apply 호출 → 예외 응답 확인 + `ZCARD enrolled` 가 호출 전 값과 동일 (보상 Lua 가 ZADD 를 되돌렸음).
+- [x] (NEW) `ReconcileTest.java` — capacity=3 Class 에 PENDING 2, WAITLISTED 1 적재한 뒤 `redisTemplate.getConnectionFactory().getConnection().flushDb()` 실행 → `reconcileRunner.reconcile(classId)` 호출 → `ZCARD enrolled == 2` && `ZCARD waitlist == 1`. ZRANGE 의 score 순서가 DB appliedAt 순과 일치.
