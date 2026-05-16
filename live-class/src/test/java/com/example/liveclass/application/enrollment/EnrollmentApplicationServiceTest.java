@@ -18,6 +18,7 @@ import com.example.liveclass.domain.user.UserRepository;
 import com.example.liveclass.domain.user.UserRole;
 import com.example.liveclass.infrastructure.ClassLockBusyException;
 import com.example.liveclass.infrastructure.ReconcileService;
+import com.example.liveclass.infrastructure.RedisKeyFactory;
 import com.example.liveclass.support.IntegrationTest;
 import com.example.liveclass.support.PostgresTestContainer;
 import com.example.liveclass.support.RedisContainerExtension;
@@ -355,8 +356,8 @@ class EnrollmentApplicationServiceTest {
     @Test
     void classLock_contention_realRace_oneWinsOneRejected() throws Exception {
         Class clazz = persistOpenClass(10);
-        stringRedisTemplate.delete("enrolled:" + clazz.getId());
-        stringRedisTemplate.delete("waitlist:" + clazz.getId());
+        stringRedisTemplate.delete(RedisKeyFactory.enrolled(clazz.getId()));
+        stringRedisTemplate.delete(RedisKeyFactory.waitlist(clazz.getId()));
 
         UUID cm1 = userRepository.save(User.register(UserRole.CLASSMATE, "RaceA", Instant.now())).getId();
         UUID cm2 = userRepository.save(User.register(UserRole.CLASSMATE, "RaceB", Instant.now())).getId();
@@ -406,6 +407,6 @@ class EnrollmentApplicationServiceTest {
 
         // 성공한 쪽만 DB row 와 enrolled ZSET 에 반영.
         assertThat(enrollmentRepository.findAll()).hasSize(1);
-        assertThat(stringRedisTemplate.opsForZSet().zCard("enrolled:" + clazz.getId())).isEqualTo(1L);
+        assertThat(stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.enrolled(clazz.getId()))).isEqualTo(1L);
     }
 }
