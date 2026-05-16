@@ -9,7 +9,9 @@ if [ -n "${SURROGATE_GUARD_OFF:-}" ]; then
 fi
 
 # 임계값 정의
-MAX_BYTES=1572864   # 1.5 MB
+# 2026-05-16 surrogate-split이 char ~1.6 MB에서 재발. 기존 1.5 MB 임계값은
+# 인시던트 지점과 마진이 사실상 없었으므로 1.2 MB로 낮춰 경고를 앞당긴다.
+MAX_BYTES=1258291   # 1.2 MB
 MAX_MESSAGES=500
 
 LOG_DIR="${CLAUDE_PROJECT_DIR:-.}/reports"
@@ -56,10 +58,10 @@ printf '%s\tcumulative\tbytes=%s\tmessages=%s\tsession=%s\n' \
 
 cat >&2 <<EOF
 [hook:cumulative-size-guard] 세션 누적 크기 임계값 초과.
-  jsonl 크기: ${byte_size:-0} bytes (임계값 ${MAX_BYTES} bytes = 1.5 MB)
+  jsonl 크기: ${byte_size:-0} bytes (임계값 ${MAX_BYTES} bytes = 1.2 MB)
   메시지 수: ${message_count:-0} (임계값 ${MAX_MESSAGES})
   권장 조치: /clear 로 컨텍스트를 초기화하거나 서브에이전트에 작업을 위임하세요.
-  surrogate-split 위험이 높아졌습니다. (2026-05-15 인시던트 참조)
+  surrogate-split 위험이 높아졌습니다. (2026-05-15, 2026-05-16 인시던트 참조)
 EOF
 
 # 비차단 — 항상 exit 0
