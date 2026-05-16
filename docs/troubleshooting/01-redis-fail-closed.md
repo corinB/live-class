@@ -138,7 +138,7 @@ curl -sS -X POST http://localhost:8080/api/enrollments \
 
 ### 4.2 자체 방어막 작동 — t3.nano 한계 부하
 
-본 핸들러 머지 후 한 달 뒤, 격리 부하 테스트 환경에서 자체 방어막이 의도대로 작동함을 확인했다 (`reports/load-test/t3-small-limit-2026-05-16.md`).
+본 핸들러 머지 후 얼마 뒤, 격리 부하 테스트 환경에서 자체 방어막이 의도대로 작동함을 확인했다 (`reports/load-test/t3-small-limit-2026-05-16.md`).
 
 t3.nano 시뮬레이션 (2 vCPU / 0.5 GiB, app heap 220m, Redis 0.3 cpu / 35m) 에서 50k 사용자 / 100 정원 부하를 11분간 가한 결과.
 
