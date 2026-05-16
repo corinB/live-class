@@ -1,4 +1,4 @@
-﻿---
+---
 name: business-card-production
 description: 면접관 평가용 README + 상세 문서 세트를 doc-maestro 1개 호출로 일괄 생성한다. doc-maestro 가 README.md 12 섹션을 직접 작성하고 내부에서 doc-worker × 4 (api/erd/architecture/cicd) + doc-troubleshooting-worker × 4 를 병렬 디스패치. 기존 문서는 덮어쓴다. 완료 후 pipeline-guard 자동 실행. 사용자가 /business-card-production 직접 호출했을 때만 동작.
 ---
