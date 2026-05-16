@@ -52,6 +52,11 @@ fi
 
 # JVM 관련 명령은 deny (한글 경로 ClassNotFoundException 회피)
 if printf '%s' "${command_str}" | grep -qE '(^|[[:space:];&|])(\./gradlew|gradlew\.bat|mvn|mvnw|java[[:space:]]+-jar|kotlin[[:space:]]+-jar)'; then
+  # ASCII 경로(/c/work/* 또는 C:/work/*)로 cd 한 뒤 JVM 을 실행하는 형태는 통과 —
+  # 실제 JVM 의 user.dir 은 ASCII 경로가 되어 ClassNotFoundException 회귀 위험이 없다.
+  if printf '%s' "${command_str}" | grep -qE '(^|[[:space:];&|])cd[[:space:]]+"?(/c/|C:/|/[A-Za-z]/)work/[A-Za-z0-9._/-]+'; then
+    exit 0
+  fi
   printf '{"permissionDecision":"deny","reason":"korean-cwd: JVM 명령은 한글 경로에서 ClassNotFoundException 위험이 큽니다. ASCII 경로 워크트리에서 실행하세요. (KOREAN_CWD_GUARD_OFF=1 로 우회 가능)"}'
   cat >&2 <<EOF
 [hook:pre-bash-detect-korean-cwd] 차단: 비-ASCII 경로에서 JVM 명령 실행 시도.

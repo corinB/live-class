@@ -18,24 +18,24 @@ PR #54 머지 commit `b289ca9` 의 보상 로직이 canceller 측 score 를 복�
 
 ## Action Items (Checklist)
 
-- [ ] `live-class/src/main/resources/lua/enrollment_cancel_promote.lua` — cancellerScore 를 return 첫 번째 원소로 추가.
+- [x] `live-class/src/main/resources/lua/enrollment_cancel_promote.lua` — cancellerScore 를 return 첫 번째 원소로 추가.
   - return 배열 길이 3 으로 변경 — `{cancellerScore, promotedUserId, promotedScore}`.
   - promoted 가 없는 경우 ARGV[2] (promotedUserId) 및 ARGV[3] (promotedScore) 자리에 빈 문자열 반환.
   - 첫 줄 주석에 return shape 명시.
-- [ ] `live-class/src/main/java/com/example/liveclass/application/enrollment/EnrollmentMirrorService.java` — `reverseCancelPromote` 시그니처 변경.
+- [x] `live-class/src/main/java/com/example/liveclass/application/enrollment/EnrollmentMirrorService.java` — `reverseCancelPromote` 시그니처 변경.
   - 새 인자 `double cancellerScore` 추가 (호출자 측에서 Lua 가 반환한 값 그대로 전달).
   - 메서드 내부 `long cancellerScore = System.nanoTime()` 호출 **제거**.
   - 인자로 받은 `cancellerScore` 를 그대로 ZADD 시 사용.
-- [ ] `EnrollmentMirrorService.scoreOf(Instant)` 공용 static method 추출.
+- [x] `EnrollmentMirrorService.scoreOf(Instant)` 공용 static method 추출.
   - 공식: `epochSec × 1_000_000_000L + nano` (apply Lua 와 동일).
   - apply / cancel / reverse / 후속 reconcile 호출부 모두 이 static method 사용하도록 통일.
-- [ ] `EnrollmentApplicationService` (또는 cancel-promote 호출 지점) 에서 Lua return 의 첫 번째 원소 (cancellerScore) 를 추출해 보상 경로(`reverseCancelPromote`) 인자로 전달.
-- [ ] `EnrollmentCancelTest.reverseCancelPromote_restoresZset()` 에 `assertThat(cancellerScore).isEqualTo(1000.0)` 한 줄 추가 (기존 검증 + canceller score 정확성).
-- [ ] `EnrollmentCancelCompensationTest` 에 신규 FIFO 시나리오 추가.
+- [x] `EnrollmentApplicationService` (또는 cancel-promote 호출 지점) 에서 Lua return 의 첫 번째 원소 (cancellerScore) 를 추출해 보상 경로(`reverseCancelPromote`) 인자로 전달.
+- [x] `EnrollmentCancelTest.reverseCancelPromote_restoresZset()` 에 `assertThat(cancellerScore).isEqualTo(1000.0)` 한 줄 추가 (기존 검증 + canceller score 정확성).
+- [x] `EnrollmentCancelCompensationTest` 에 신규 FIFO 시나리오 추가.
   - 설정: capacity=1, enrolled A(score=100), waitlist B(200), C(300), D(400).
   - 흐름: A.confirm → A.cancel → promoted (B) save 강제 RuntimeException → 보상 발동.
   - 단언: ZRANGE WITHSCORES enrolled == `[(A,100)]`, waitlist == `[(B,200),(C,300),(D,400)]` 정확 일치.
-- [ ] `MockPaymentGateway` 의 "Called outside the DB transaction" 주석 정정.
+- [x] `MockPaymentGateway` 의 "Called outside the DB transaction" 주석 정정.
   - 실제 호출 위치는 `EnrollmentApplicationService.confirmPayment` (`@Transactional` 내부, line ~115).
   - 주석을 실제 호출 컨텍스트에 맞게 다시 작성.
 
