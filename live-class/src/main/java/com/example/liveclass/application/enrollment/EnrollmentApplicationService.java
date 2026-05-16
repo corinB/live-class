@@ -267,6 +267,13 @@ public class EnrollmentApplicationService {
      * `[cancellerScore, promotedId, promotedScore]`. promotion 없으면 promotedId/Score 가
      * 빈 문자열, canceller 가 enrolled 에 없었으면 cancellerScore 도 빈 문자열.
      * 인덱스 직접 접근 대신 record + factory 로 파싱 책임을 한 곳에 모은다 (Gemini PR #93 P2).
+     *
+     * 파싱 계약: cancellerScore 는 ZSCORE 결과(숫자) 또는 ""; promotedId 는 UUID toString
+     * 결과 또는 ""; promotedScore 는 ZPOPMIN score(정수 문자열) 또는 "". 본 가정은
+     * `enrollment_cancel_promote.lua` 첫 줄 주석과 짝이 되며 — 그 파일이 변경될 때마다
+     * here 의 파싱 로직도 함께 업데이트해야 한다. 가정 이탈 시 NumberFormatException /
+     * IllegalArgumentException 이 호출자(`cancelInTx`)까지 그대로 전파되어 503 매핑된다
+     * (Gemini PR #97 P2 — try-catch 방어 대신 호출 계약을 명시).
      */
     private record LuaCancelResult(double cancellerScore, UUID promotedId, long promotedScore, boolean hasPromotion) {
         static LuaCancelResult from(List<String> raw) {
