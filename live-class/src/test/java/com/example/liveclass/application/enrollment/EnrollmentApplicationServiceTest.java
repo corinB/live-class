@@ -343,4 +343,69 @@ class EnrollmentApplicationServiceTest {
         EnrollmentResponse after = enrollmentApplicationService.apply(classmateId, clazz.getId(), Instant.now().plusMillis(50));
         assertThat(after.status()).isEqualTo(EnrollmentStatus.PENDING);
     }
+
+    /**
+     * 외부 starter 락 없이 두 apply 가 진짜로 동시 경합하는 시나리오 (Gemini PR #92 후속 권장).
+     * `classLock_contention_bothRejected_whenLockHeldByStarter` 가 약속한 follow-up.
+     *
+     * 동작 — capacity=10. 두 thread 가 CountDownLatch ready→go 로 동기 출발해서 같은 classId 로
+     * apply. Redis SET NX 가 두 스레드 중 정확히 한쪽만 락을 잡으므로,
+     * 정확히 한쪽은 PENDING 으로 성공하고 반대편은 ClassLockBusyException 으로 떨어져야 한다.
+     */
+    @Test
+    void classLock_contention_realRace_oneWinsOneRejected() throws Exception {
+        Class clazz = persistOpenClass(10);
+        stringRedisTemplate.delete("enrolled:" + clazz.getId());
+        stringRedisTemplate.delete("waitlist:" + clazz.getId());
+
+        UUID cm1 = userRepository.save(User.register(UserRole.CLASSMATE, "RaceA", Instant.now())).getId();
+        UUID cm2 = userRepository.save(User.register(UserRole.CLASSMATE, "RaceB", Instant.now())).getId();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch go = new CountDownLatch(1);
+        AtomicReference<Throwable> err1 = new AtomicReference<>();
+        AtomicReference<Throwable> err2 = new AtomicReference<>();
+        AtomicBoolean ok1 = new AtomicBoolean(false);
+        AtomicBoolean ok2 = new AtomicBoolean(false);
+
+        pool.submit(() -> {
+            ready.countDown();
+            try { go.await(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+            try {
+                enrollmentApplicationService.apply(cm1, clazz.getId(), Instant.now());
+                ok1.set(true);
+            } catch (Throwable t) {
+                err1.set(t);
+            }
+        });
+        pool.submit(() -> {
+            ready.countDown();
+            try { go.await(); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+            try {
+                enrollmentApplicationService.apply(cm2, clazz.getId(), Instant.now().plusNanos(1));
+                ok2.set(true);
+            } catch (Throwable t) {
+                err2.set(t);
+            }
+        });
+
+        ready.await(2, TimeUnit.SECONDS);
+        go.countDown();
+        pool.shutdown();
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+
+        // 정확히 한쪽만 성공 (XOR), 반대편은 ClassLockBusyException.
+        assertThat(ok1.get() ^ ok2.get())
+                .as("exactly one apply must succeed, the other must be rejected by lock contention")
+                .isTrue();
+        Throwable loserErr = ok1.get() ? err2.get() : err1.get();
+        assertThat(loserErr)
+                .as("the rejected side must surface ClassLockBusyException")
+                .isInstanceOf(ClassLockBusyException.class);
+
+        // 성공한 쪽만 DB row 와 enrolled ZSET 에 반영.
+        assertThat(enrollmentRepository.findAll()).hasSize(1);
+        assertThat(stringRedisTemplate.opsForZSet().zCard("enrolled:" + clazz.getId())).isEqualTo(1L);
+    }
 }
