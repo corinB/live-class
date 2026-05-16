@@ -224,16 +224,12 @@ public class EnrollmentApplicationService {
             throw ex;
         }
 
-        // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled
-        // Return shape: [cancellerScore, promotedId, promotedScore] — fixed length 3.
-        // promotedId/promotedScore are empty strings when no waitlist promotion occurred.
-        List<String> luaResult = mirrorService.cancelAndMaybePromote(classId, classmateId, wasConfirmed);
+        // Lua atomic ZREM + optional ZPOPMIN waitlist + ZADD enrolled.
+        LuaCancelResult result = LuaCancelResult.from(
+                mirrorService.cancelAndMaybePromote(classId, classmateId, wasConfirmed));
 
-        if (luaResult != null && luaResult.size() >= 3 && !luaResult.get(1).isEmpty()) {
-            String cancellerScoreStr = luaResult.get(0);
-            double cancellerScore = cancellerScoreStr.isEmpty() ? 0.0 : Double.parseDouble(cancellerScoreStr);
-            UUID promotedClassmateId = UUID.fromString(luaResult.get(1));
-            long promotedScore = Long.parseLong(luaResult.get(2));
+        if (result.hasPromotion()) {
+            UUID promotedClassmateId = result.promotedId();
 
             Enrollment promoted = enrollmentRepository.findActiveByClassAndClassmate(classId, promotedClassmateId)
                     .orElseThrow(EnrollmentNotFoundException::new);
@@ -245,7 +241,7 @@ public class EnrollmentApplicationService {
                 // DB UPDATE failed — reverse the Lua ZSET changes, restoring the canceller
                 // to its ORIGINAL score so waitlist FIFO order is preserved.
                 mirrorService.reverseCancelPromote(classId, classmateId, promotedClassmateId,
-                        cancellerScore, promotedScore);
+                        result.cancellerScore(), result.promotedScore());
                 throw ex;
             }
 
@@ -264,5 +260,28 @@ public class EnrollmentApplicationService {
             return new DuplicateEnrollmentException();
         }
         return ex;
+    }
+
+    /**
+     * `enrollment_cancel_promote.lua` 의 return shape — 고정 길이 3
+     * `[cancellerScore, promotedId, promotedScore]`. promotion 없으면 promotedId/Score 가
+     * 빈 문자열, canceller 가 enrolled 에 없었으면 cancellerScore 도 빈 문자열.
+     * 인덱스 직접 접근 대신 record + factory 로 파싱 책임을 한 곳에 모은다 (Gemini PR #93 P2).
+     */
+    private record LuaCancelResult(double cancellerScore, UUID promotedId, long promotedScore, boolean hasPromotion) {
+        static LuaCancelResult from(List<String> raw) {
+            if (raw == null || raw.size() < 3) {
+                return new LuaCancelResult(0.0, null, 0L, false);
+            }
+            String cs = raw.get(0);
+            double cancellerScore = cs.isEmpty() ? 0.0 : Double.parseDouble(cs);
+            String pidStr = raw.get(1);
+            if (pidStr.isEmpty()) {
+                return new LuaCancelResult(cancellerScore, null, 0L, false);
+            }
+            UUID promotedId = UUID.fromString(pidStr);
+            long promotedScore = Long.parseLong(raw.get(2));
+            return new LuaCancelResult(cancellerScore, promotedId, promotedScore, true);
+        }
     }
 }
