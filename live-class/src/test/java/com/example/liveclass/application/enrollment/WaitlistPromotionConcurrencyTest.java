@@ -141,29 +141,33 @@ class WaitlistPromotionConcurrencyTest {
             }
         });
 
-        assertThat(successCount.get()).isEqualTo(1);
-        assertThat(lockBusyCount.get()).isEqualTo(1);
+        // 환경에 따라 successCount 1 또는 2. 락 winner 처리 → 락 풀림 → 다른 thread acquire 가능.
+        // 그러나 double-promotion 은 절대 일어나지 않는다 — 각 cancel 은 cancel_promote.lua 의
+        // ZPOPMIN 으로 가장 오래된 waitlist 1명만 promote, ZADD enrolled 까지 원자.
+        assertThat(successCount.get() + lockBusyCount.get()).isEqualTo(2);
+        assertThat(successCount.get()).isGreaterThanOrEqualTo(1).isLessThanOrEqualTo(2);
 
-        // DB 상태 — 정확히 1 CANCELLED, 1 CONFIRMED 유지, 1 WAITLISTED 가 promote → PENDING.
         long cancelled = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.CANCELLED);
         long confirmed = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.CONFIRMED);
         long pending = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.PENDING);
         long waitlisted = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.WAITLISTED);
-        assertThat(cancelled).isEqualTo(1L);
-        assertThat(confirmed).isEqualTo(1L);   // 락 reject 된 thread 의 enrollment 는 그대로
-        assertThat(pending).isEqualTo(1L);      // 1 waitlist 가 승격
-        assertThat(waitlisted).isEqualTo(4L);   // 5 - 1 (가장 오래된 1 promote)
 
-        // ZSET 일관성
+        // successCount 에 따라 결정론적 분기 — 각 cancel 마다 정확히 1 promote.
+        int s = successCount.get();
+        assertThat(cancelled).as("CANCELLED == successCount").isEqualTo((long) s);
+        assertThat(confirmed).as("CONFIRMED == 2 - successCount").isEqualTo(2L - s);
+        assertThat(pending).as("PENDING == successCount (each cancel promotes one)").isEqualTo((long) s);
+        assertThat(waitlisted).as("WAITLISTED == 5 - successCount").isEqualTo(5L - s);
+
+        // ZSET enrolled == confirmed + pending == 2 (capacity 항상 채워짐), waitlist == 5 - successCount.
         Long enrolledZcard = stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.enrolled(classId));
         Long waitlistZcard = stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.waitlist(classId));
-        assertThat(enrolledZcard).isEqualTo(2L);  // confirmed 1 + pending 1
-        assertThat(waitlistZcard).isEqualTo(4L);
+        assertThat(enrolledZcard).isEqualTo(2L);
+        assertThat(waitlistZcard).isEqualTo((long) (5 - s));
 
-        // double promotion 회피: 동일 사용자 두 명이 동시에 promote 된 흔적 없음 (outer-wrap 으로 직렬화).
-        // promote 된 사용자는 정확히 가장 오래된 1명 (waitlistUsers.get(0)).
-        var promoted = enrollmentRepository.findActiveByClassAndClassmate(classId, waitlistUsers.get(0));
-        assertThat(promoted).isPresent();
-        assertThat(promoted.get().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
+        // 가장 오래된 waitlist (waitlistUsers.get(0)) 가 첫 cancel 의 promote 대상.
+        var firstPromoted = enrollmentRepository.findActiveByClassAndClassmate(classId, waitlistUsers.get(0));
+        assertThat(firstPromoted).isPresent();
+        assertThat(firstPromoted.get().getStatus()).isEqualTo(EnrollmentStatus.PENDING);
     }
 }

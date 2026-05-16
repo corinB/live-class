@@ -122,18 +122,19 @@ class CancelDoubleClickConcurrencyTest {
             }
         });
 
-        // 둘 중 정확히 한쪽만 락 acquire — 둘 다 통과 X.
+        // 환경에 따라 successCount 1 또는 2 (두 번째 thread 가 락 acquire 했지만 이미 CANCELLED
+        // 상태라 cancelInTx 의 멱등 분기에서 즉시 return → 200). 어쨌든 두 thread 가 던지는 예외는
+        // ClassLockBusyException 뿐.
         assertThat(successCount.get() + lockBusyCount.get()).isEqualTo(2);
-        assertThat(successCount.get()).isEqualTo(1);
-        assertThat(lockBusyCount.get()).isEqualTo(1);
+        assertThat(successCount.get()).isGreaterThanOrEqualTo(1);
 
-        // DB: row 가 정확히 CANCELLED.
+        // DB: 정확히 1 row CANCELLED (멱등 분기 덕분에 두 번째 thread 는 상태 전이 안 시킴).
         long cancelled = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.CANCELLED);
         long confirmed = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.CONFIRMED);
         assertThat(cancelled).isEqualTo(1L);
         assertThat(confirmed).isZero();
 
-        // ZSET: enrolled 에서 ZREM 1회 (락 통과 thread). 다른 thread 는 Lua 미호출.
+        // ZSET: enrolled 에서 ZREM 정확히 1회 — 두 번째 thread 는 멱등 return 으로 Lua 미호출.
         assertThat(stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.enrolled(classId))).isZero();
     }
 }

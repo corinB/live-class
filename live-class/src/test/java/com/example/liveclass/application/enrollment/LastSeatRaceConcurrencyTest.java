@@ -132,22 +132,22 @@ class LastSeatRaceConcurrencyTest {
         long waitlisted = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.WAITLISTED);
         long cancelled = enrollmentRepository.countByClassIdAndStatus(classId, EnrollmentStatus.CANCELLED);
 
-        // 정확히 1 PENDING — capacity=1 게이트 + outer-wrap 락이 single-winner 보장.
-        assertThat(pending).as("exactly one PENDING").isEqualTo(1L);
+        // 핵심 invariant — capacity 게이트가 PENDING 을 정확히 1 로 보장 (락 winner 처리 후
+        // 다음 thread 가 락 acquire 해서 통과하면 그 thread 는 정원 가득이라 WAITLISTED 가 됨).
+        assertThat(pending).as("exactly one PENDING for capacity=1").isEqualTo(1L);
         assertThat(cancelled).as("no spurious CANCELLED").isZero();
-        // 락 acquire 실패한 thread 는 DB row 를 만들지 못함.
+        // 락 acquire 실패한 thread 는 DB row 를 만들지 못함 — DB row 합 == successCount.
         assertThat(pending + waitlisted).as("DB row count == successCount").isEqualTo(successCount.get());
-        // 합산이 정확히 50 (모든 thread 가 success / lockBusy 둘 중 하나).
+        // 모든 thread 가 success / lockBusy 둘 중 하나 — 다른 예외 없음.
         assertThat(otherErrorCount.get()).as("only ClassLockBusy is expected, no other errors").isZero();
         assertThat(successCount.get() + lockBusyCount.get()).isEqualTo(THREAD_COUNT);
-        // 첫 thread 가 락 잡고 처리하는 동안 나머지는 모두 setIfAbsent NX 에서 즉시 fail.
-        // race 가 진짜이면 successCount == 1, lockBusyCount == 49 결정론적.
-        assertThat(successCount.get()).as("only the lock winner reaches DB").isEqualTo(1);
-        assertThat(lockBusyCount.get()).as("49 threads rejected by lock contention").isEqualTo(THREAD_COUNT - 1);
+        // 적어도 1 thread 는 통과 (capacity 1 채워야). 환경에 따라 다른 thread 들이 락 풀린 후
+        // 추가로 acquire 해서 WAITLISTED 로 들어올 수 있음 — 그건 production 에서도 동일.
+        assertThat(successCount.get()).as("at least one thread won the lock").isGreaterThanOrEqualTo(1);
 
         Long enrolledZcard = stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.enrolled(classId));
         Long waitlistZcard = stringRedisTemplate.opsForZSet().zCard(RedisKeyFactory.waitlist(classId));
         assertThat(enrolledZcard).as("ZCARD enrolled == 1").isEqualTo(1L);
-        assertThat(waitlistZcard).as("ZCARD waitlist == 0 (no thread reached Lua promotion path)").isZero();
+        assertThat(waitlistZcard).as("ZCARD waitlist == DB waitlisted count").isEqualTo(waitlisted);
     }
 }
