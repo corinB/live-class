@@ -13,11 +13,13 @@ on:
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'live-class/**'
-      - 'front/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/ci.yml'
+    # NOTE: paths filter intentionally removed so the workflow runs on every PR.
+    # `Build & Test` is a required status check on main; whitelisting paths
+    # caused PRs without live-class/front changes to leave the context
+    # permanently "expected" and blocked merge. Filter is reproduced inline
+    # in the first step below; non-matching PRs see a quick skip-success.
+    # The push-side `paths` filter stays (push events do not feed branch
+    # protection's required-check gate, so cost-saving still applies there).
 
 jobs:
 
@@ -32,8 +34,45 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute path-filter decision
+        id: filter
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # push to main: the on.push.paths filter already gated; if we got
+            # here we must run the real job.
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
+          CHANGED=$(git diff --name-only "$BASE_REF...HEAD" || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed files detected; skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Reproduce the previous paths whitelist inline. Run when any
+          # changed file matches one of: live-class/**, front/**,
+          # docker-compose.yml, .github/workflows/ci.yml.
+          MATCH_REGEX='(^live-class/|^front/|^docker-compose\.yml$|^\.github/workflows/ci\.yml$)'
+          SHOULD_RUN=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if echo "$f" | grep -qE "$MATCH_REGEX"; then
+              SHOULD_RUN=true
+              break
+            fi
+          done <<< "$CHANGED"
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "Changed files (truncated):"
+          echo "$CHANGED" | head -30
 
       - name: Set up JDK 21 (Temurin)
+        if: steps.filter.outputs.should_run == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -44,18 +83,26 @@ jobs:
       # (visible as 'Failed to restore gradle-home-v1' annotation on every PR
       # since the workflow was added) is fixed in v4.
       - name: Setup Gradle
+        if: steps.filter.outputs.should_run == 'true'
         uses: gradle/actions/setup-gradle@v4
 
       # Drop --no-daemon (irrelevant on ephemeral runners) and clean (discards
       # compiled output that --build-cache could reuse). Enable build cache and
       # disable filesystem watching (pointless on one-shot CI invocations).
       - name: Run tests
+        if: steps.filter.outputs.should_run == 'true'
         working-directory: live-class
         run: ./gradlew test --build-cache --no-watch-fs
 
       - name: Upload test reports
-        if: always()
+        if: always() && steps.filter.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: live-class/build/reports/tests/
+
+      - name: Emit skipped notice when no relevant changes
+        if: steps.filter.outputs.should_run != 'true'
+        run: |
+          echo "[Build & Test] skipped — no live-class/front/docker-compose changes in this PR."
+          echo "This job emits success so the required status check is satisfied."
