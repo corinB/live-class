@@ -74,7 +74,7 @@ public class ClassApplicationService {
 
         for (int attempt = 0; attempt < 2; attempt++) {
             try {
-                Class clazz = classRepository.findByIdForUpdate(classId)
+                Class clazz = classRepository.findById(classId)
                         .orElseThrow(ClassNotFoundException::new);
                 UserId requester = UserId.of(requesterId);
                 Instant now = Instant.now();
