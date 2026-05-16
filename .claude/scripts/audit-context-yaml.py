@@ -75,6 +75,33 @@ def walk_ids(node, ids: dict[str, list[str]], path: list[str]) -> None:
             walk_ids(item, ids, path + [str(i)])
 
 
+def load_imports(doc: dict, drifts: list[str]) -> list[dict]:
+    """Load any `imports:` referenced yaml files and return their parsed docs."""
+    imported: list[dict] = []
+    imports = doc.get("imports") or []
+    if not isinstance(imports, list):
+        drifts.append("imports: must be a list of relative paths")
+        return imported
+    for entry in imports:
+        if not isinstance(entry, str):
+            drifts.append(f"imports: non-string entry {entry!r}")
+            continue
+        abs_path = REPO_ROOT / entry
+        if not abs_path.is_file():
+            drifts.append(f"imports[{entry}]: file missing")
+            continue
+        try:
+            sub = yaml.safe_load(abs_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            drifts.append(f"imports[{entry}]: yaml parse failed - {exc}")
+            continue
+        if not isinstance(sub, dict):
+            drifts.append(f"imports[{entry}]: top-level must be a mapping")
+            continue
+        imported.append(sub)
+    return imported
+
+
 def audit(doc: dict) -> list[str]:
     drifts: list[str] = []
 
@@ -86,8 +113,12 @@ def audit(doc: dict) -> list[str]:
         )
         return drifts
 
+    imported = load_imports(doc, drifts)
+
     ids: dict[str, list[str]] = {}
     walk_ids(doc, ids, [])
+    for i, sub in enumerate(imported):
+        walk_ids(sub, ids, [f"import[{i}]"])
     for node_id, locations in ids.items():
         if len(locations) > 1:
             drifts.append(
@@ -101,26 +132,29 @@ def audit(doc: dict) -> list[str]:
             )
 
     known_ids = set(ids.keys())
-    relationships = doc.get("relationships") or []
-    if not isinstance(relationships, list):
-        drifts.append("relationships: must be a list of {from, to, type}")
-    else:
-        for idx, rel in enumerate(relationships):
-            if not isinstance(rel, dict):
-                drifts.append(f"relationships[{idx}]: not a mapping")
-                continue
-            rtype = rel.get("type")
-            rfrom = rel.get("from")
-            rto = rel.get("to")
-            if rtype not in REL_TYPES:
-                drifts.append(
-                    f"relationships[{idx}].type: {rtype!r} not in vocabulary "
-                    f"{sorted(REL_TYPES)}"
-                )
-            if rfrom not in known_ids:
-                drifts.append(f"relationships[{idx}].from: unknown id {rfrom!r}")
-            if rto not in known_ids:
-                drifts.append(f"relationships[{idx}].to: unknown id {rto!r}")
+    relationships: list = []
+    for src in (doc, *imported):
+        rel_list = src.get("relationships") or []
+        if isinstance(rel_list, list):
+            relationships.extend(rel_list)
+        else:
+            drifts.append("relationships: must be a list of {from, to, type}")
+    for idx, rel in enumerate(relationships):
+        if not isinstance(rel, dict):
+            drifts.append(f"relationships[{idx}]: not a mapping")
+            continue
+        rtype = rel.get("type")
+        rfrom = rel.get("from")
+        rto = rel.get("to")
+        if rtype not in REL_TYPES:
+            drifts.append(
+                f"relationships[{idx}].type: {rtype!r} not in vocabulary "
+                f"{sorted(REL_TYPES)}"
+            )
+        if rfrom not in known_ids:
+            drifts.append(f"relationships[{idx}].from: unknown id {rfrom!r}")
+        if rto not in known_ids:
+            drifts.append(f"relationships[{idx}].to: unknown id {rto!r}")
 
     metadata = doc.get("metadata") or {}
     last_indexed = metadata.get("last_indexed")

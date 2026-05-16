@@ -1,11 +1,18 @@
-# 영문 요약 + 한국어 Wiki 링크 + Hybrid 그래프(노드 id + relationships 트리플) 인덱스
+# 영문 요약 + 한국어 Wiki 링크 + Hybrid 그래프(노드 id + relationships 트리플) 인덱스. 카탈로그/자동화/그래프는 imports 참조.
 schema_version: 3
 
 schema_notes:
-  - "Each entity carries an `id`. Cross-cutting relations live in top-level `relationships:` as {from, to, type} triples."
+  - "Each entity carries an `id`. Cross-cutting relations live in .claude/context/graph.yaml as {from, to, type} triples."
   - "id naming: `<type>/<slug>` where type in {domain, state, script, mirror, api, agent, skill, workflow, dir, external, invariant, term, principle, policy, doc, project, automation}."
   - "Closed `type` vocabulary: contains, transitions_to, enforced_by, mitigated_by, writes, reads, mirrors, scopes, triggered_by, owns, chains, depends_on, ref."
-  - "Audit: `python .claude/scripts/audit-context-yaml.py` (no drift = exit 0)."
+  - "Audit: `python .claude/scripts/audit-context-yaml.py` walks imports + validates graph integrity (exit 0 = no drift)."
+
+imports:
+  # Audit walks these and merges nodes/relationships for integrity checks.
+  - ".claude/context/agents.yaml"     # agents_catalog
+  - ".claude/context/skills.yaml"     # skills_catalog
+  - ".claude/context/automation.yaml" # automation_pipeline
+  - ".claude/context/graph.yaml"      # relationships triples
 
 docs:
   - id: doc/claude
@@ -102,34 +109,16 @@ business_context:
       auth_mechanism: "Mock - identified by the X-User-Id header. Spring Security is not used."
 
   glossary:
-    # state/enrollment/* and state/class/* nodes carry the value-level definitions (no duplicate term/* entries for PENDING/CONFIRMED/CANCELLED/WAITLISTED/DRAFT/OPEN/CLOSED).
-    - id: term/creator
-      term: "Creator"
-      definition: "The instructor role that opens a class."
-    - id: term/classmate
-      term: "Classmate"
-      definition: "The student role that applies for a class."
-    - id: term/last_seat_race
-      term: "Last-seat race"
-      definition: "Race condition where multiple users simultaneously apply for the last seat of Class.capacity."
-    - id: term/cancellation_window
-      term: "Cancellation window"
-      definition: "The 7-day window after payment (CONFIRMED) during which cancellation is allowed."
-    - id: term/waitlist_promotion
-      term: "Waitlist promotion"
-      definition: "When a CONFIRMED enrollment cancels, the oldest WAITLISTED entry is automatically promoted to PENDING."
-    - id: term/zset_mirror
-      term: "ZSET mirror"
-      definition: "Two Redis Sorted Sets (enrolled:{classId}, waitlist:{classId}) mirror the active Enrollment set with score=appliedAtNanos. They act as the Enrollment Aggregate index and the first gate for race-critical decisions."
-    - id: term/lua_atomic_script
-      term: "Lua atomic script"
-      definition: "Script that executes read-modify-write atomically inside the Redis single-threaded server. Three scripts: enrollment_apply / enrollment_cancel_promote / enrollment_compensate. No distributed lock needed."
-    - id: term/reconcile
-      term: "Reconcile"
-      definition: "Rebuilds the Redis ZSET from the DB at boot (DB -> Redis), assuming possible drift. At runtime it is force-triggered via POST /api/admin/reconcile/{classId}."
-    - id: term/auto_close
-      term: "Auto-close"
-      definition: "Quartz ClassAutoCloseJob runs daily at 00:05 KST and transitions OPEN classes whose endDate has passed to CLOSED."
+    # state/enrollment/* and state/class/* nodes carry value-level definitions (no duplicate term/* entries for PENDING/CONFIRMED/CANCELLED/WAITLISTED/DRAFT/OPEN/CLOSED).
+    - {id: term/creator, term: "Creator", definition: "Instructor role that opens a class."}
+    - {id: term/classmate, term: "Classmate", definition: "Student role that applies for a class."}
+    - {id: term/last_seat_race, term: "Last-seat race", definition: "Race condition where multiple users simultaneously apply for the last seat of Class.capacity."}
+    - {id: term/cancellation_window, term: "Cancellation window", definition: "The 7-day window after payment (CONFIRMED) during which cancellation is allowed."}
+    - {id: term/waitlist_promotion, term: "Waitlist promotion", definition: "When a CONFIRMED enrollment cancels, the oldest WAITLISTED entry is automatically promoted to PENDING."}
+    - {id: term/zset_mirror, term: "ZSET mirror", definition: "Two Redis Sorted Sets (enrolled:{classId}, waitlist:{classId}) mirror the active Enrollment set with score=appliedAtNanos. Enrollment Aggregate index + first gate for race-critical decisions."}
+    - {id: term/lua_atomic_script, term: "Lua atomic script", definition: "Script that executes read-modify-write atomically inside the Redis single-threaded server. Three scripts: enrollment_apply / enrollment_cancel_promote / enrollment_compensate."}
+    - {id: term/reconcile, term: "Reconcile", definition: "Rebuilds the Redis ZSET from the DB at boot. Runtime force-trigger via POST /api/admin/reconcile/{classId}."}
+    - {id: term/auto_close, term: "Auto-close", definition: "Quartz ClassAutoCloseJob runs daily at 00:05 KST and transitions OPEN classes whose endDate has passed to CLOSED."}
 
   scripts:
     - id: script/lua/enrollment_apply
@@ -143,15 +132,9 @@ business_context:
       purpose: "Rolls back the ZSET ZADD when the matching DB INSERT/UPDATE fails."
 
   mirrors:
-    - id: mirror/redis/zset_enrolled
-      key: "enrolled:{classId}"
-      purpose: "Active Enrollment index (PENDING + CONFIRMED). score = appliedAtNanos."
-    - id: mirror/redis/zset_waitlist
-      key: "waitlist:{classId}"
-      purpose: "FIFO waitlist for over-capacity applications. score = appliedAtNanos."
-    - id: mirror/redis/class_status
-      key: "class:status:{classId}"
-      purpose: "Hot path Class state mirror used by enrollment_apply.lua to gate non-OPEN applications."
+    - {id: mirror/redis/zset_enrolled, key: "enrolled:{classId}", purpose: "Active Enrollment index (PENDING + CONFIRMED). score = appliedAtNanos."}
+    - {id: mirror/redis/zset_waitlist, key: "waitlist:{classId}", purpose: "FIFO waitlist for over-capacity applications. score = appliedAtNanos."}
+    - {id: mirror/redis/class_status, key: "class:status:{classId}", purpose: "Hot path Class state mirror used by enrollment_apply.lua to gate non-OPEN applications."}
 
 engineering_principles:
   - id: principle/coding_standards
@@ -166,7 +149,7 @@ engineering_principles:
     items:
       - "GlobalExceptionHandler handles common response mapping."
       - "Domain exceptions extend RuntimeException and are mapped to ProblemDetail."
-      - "No external calls (mock payment). Lua EVALSHA falls back to EVAL on cache miss (handled by Lettuce). On Redis failure return 503 fail-closed (consistency first)."
+      - "No external calls (mock payment). Lua EVALSHA falls back to EVAL on cache miss. On Redis failure return 503 fail-closed (consistency first)."
   - id: principle/testing
     items:
       - "Unit tests verify domain entity state transitions with plain JUnit."
@@ -175,329 +158,72 @@ engineering_principles:
 
 context_map:
   directories:
-    - id: dir/domain
-      path: "live-class/src/main/java/com/example/liveclass/domain"
-      contains: "Domain model - Class, Enrollment, User aggregates"
-    - id: dir/web
-      path: "live-class/src/main/java/com/example/liveclass/web"
-      contains: "REST controllers, DTOs, exception handlers"
-    - id: dir/config
-      path: "live-class/src/main/java/com/example/liveclass/config"
-      contains: "Spring Boot configuration (OpenAPI, Redis, Lua RedisScript, Cache, WebMvc, Quartz)"
-    - id: dir/resources
-      path: "live-class/src/main/resources"
-      contains: "application.yaml - per-profile config. Secrets are injected via env vars."
-    - id: dir/test
-      path: "live-class/src/test/java"
-      contains: "Unit, integration, and concurrency tests"
-    - id: dir/plan_after
-      path: "wiki-src/plan-after"
-      contains: "Completed task files, moved by the worker in the same PR"
-    - id: dir/reports
-      path: "reports"
-      contains: "End-of-run reports per agent. Format: reports/{NN_step}_{agent-name}_{YYYY-MM-DD}.md"
-    - id: dir/claude_agents
-      path: ".claude/agents"
-      contains: "Subagents catalog (see agents_catalog below)"
-    - id: dir/claude_skills
-      path: ".claude/skills"
-      contains: "Slash skill catalog (see skills_catalog below)"
-    - id: dir/claude_templates
-      path: ".claude/templates"
-      contains: "Deliverable templates - DOCS, ARCH, plan, report, CONTRIBUTING, PR, docker-compose, Dockerfile, ci-cd"
+    - {id: dir/domain, path: "live-class/src/main/java/com/example/liveclass/domain", contains: "Domain model - Class, Enrollment, User aggregates"}
+    - {id: dir/web, path: "live-class/src/main/java/com/example/liveclass/web", contains: "REST controllers, DTOs, exception handlers"}
+    - {id: dir/config, path: "live-class/src/main/java/com/example/liveclass/config", contains: "Spring Boot configuration (OpenAPI, Redis, Lua RedisScript, Cache, WebMvc, Quartz)"}
+    - {id: dir/resources, path: "live-class/src/main/resources", contains: "application.yaml - per-profile config. Secrets via env vars."}
+    - {id: dir/test, path: "live-class/src/test/java", contains: "Unit, integration, and concurrency tests"}
+    - {id: dir/plan_after, path: "wiki-src/plan-after", contains: "Completed task files (moved by worker)"}
+    - {id: dir/reports, path: "reports", contains: "End-of-run reports per agent (reports/{NN_step}_{agent}_{YYYY-MM-DD}.md)"}
+    - {id: dir/claude_agents, path: ".claude/agents", contains: "Subagents (catalog at .claude/context/agents.yaml)"}
+    - {id: dir/claude_skills, path: ".claude/skills", contains: "Slash skills (catalog at .claude/context/skills.yaml)"}
+    - {id: dir/claude_templates, path: ".claude/templates", contains: "Deliverable templates (DOCS, ARCH, plan, report, CONTRIBUTING, PR, compose, Dockerfile, ci-cd)"}
 
   apis:
-    - id: api/class/create
-      endpoint: "POST /api/classes"
-      caller: "Creator"
-      summary: "creates a DRAFT Class"
-    - id: api/class/transition_open
-      endpoint: "PATCH /api/classes/{id}/status OPEN"
-      caller: "Creator"
-      summary: "starts accepting applications. Refreshes the Redis class:status:{id} mirror"
-    - id: api/enrollment/apply
-      endpoint: "POST /api/enrollments"
-      caller: "Classmate"
-      summary: "calls enrollment_apply.lua (atomic ZCARD enrolled vs capacity branch) -> DB INSERT depending on result (PENDING/WAITLISTED). On DB failure, enrollment_compensate.lua rolls back the ZSET"
-    - id: api/enrollment/confirm_payment
-      endpoint: "POST /api/enrollments/{id}/confirm-payment"
-      caller: "Classmate (mock)"
-      summary: "@Version optimistic lock transitions PENDING -> CONFIRMED. ZSET unchanged (enrolled contains both PENDING and CONFIRMED)"
-    - id: api/enrollment/cancel
-      endpoint: "DELETE /api/enrollments/{id}"
-      caller: "Classmate"
-      summary: "validates the 7-day window -> DB UPDATE CANCELLED -> enrollment_cancel_promote.lua atomically ZREM enrolled + ZPOPMIN waitlist + ZADD enrolled -> promoted Enrollment goes WAITLISTED -> PENDING in DB"
-    - id: api/class/students
-      endpoint: "GET /api/classes/{id}/students"
-      caller: "Creator only"
-      summary: "paginated list of CONFIRMED Enrollments"
-    - id: api/admin/reconcile
-      endpoint: "POST /api/admin/reconcile/{classId}"
-      caller: "ops"
-      summary: "DEL the ZSET and rebuild enrolled/waitlist from the DB"
-    - id: api/scheduled/auto_close
-      endpoint: "[Scheduled] ClassAutoCloseJob daily at 00:05 KST"
-      caller: "Quartz"
-      summary: "calls autoClose() on OPEN classes whose endDate has passed"
+    - {id: api/class/create, endpoint: "POST /api/classes", caller: "Creator", summary: "creates a DRAFT Class"}
+    - {id: api/class/transition_open, endpoint: "PATCH /api/classes/{id}/status OPEN", caller: "Creator", summary: "starts accepting applications. Refreshes class:status:{id} mirror"}
+    - {id: api/enrollment/apply, endpoint: "POST /api/enrollments", caller: "Classmate", summary: "enrollment_apply.lua atomic ZCARD vs capacity -> DB INSERT (PENDING/WAITLISTED). On DB failure, enrollment_compensate.lua rolls back."}
+    - {id: api/enrollment/confirm_payment, endpoint: "POST /api/enrollments/{id}/confirm-payment", caller: "Classmate (mock)", summary: "@Version optimistic lock PENDING -> CONFIRMED. ZSET unchanged."}
+    - {id: api/enrollment/cancel, endpoint: "DELETE /api/enrollments/{id}", caller: "Classmate", summary: "7-day window check -> DB CANCELLED -> enrollment_cancel_promote.lua ZREM+ZPOPMIN+ZADD -> promoted WAITLISTED -> PENDING."}
+    - {id: api/class/students, endpoint: "GET /api/classes/{id}/students", caller: "Creator only", summary: "paginated list of CONFIRMED Enrollments"}
+    - {id: api/admin/reconcile, endpoint: "POST /api/admin/reconcile/{classId}", caller: "ops", summary: "DEL the ZSET and rebuild enrolled/waitlist from the DB"}
+    - {id: api/scheduled/auto_close, endpoint: "[Scheduled] ClassAutoCloseJob daily at 00:05 KST", caller: "Quartz", summary: "calls autoClose() on OPEN classes whose endDate has passed"}
 
   external_dependencies:
-    - id: external/docker_hub
-      service: "Docker Hub"
-      purpose: "Container image registry. Public repo qor7777777/live-class-back."
-    - id: external/aws_ec2
-      service: "AWS EC2"
-      purpose: "Runtime host (Ubuntu 22.04 + docker compose)"
-    - id: external/gemini_api
-      service: "Google AI Studio (Gemini API)"
-      purpose: "Automated PR code review (gemini-2.5-flash, advisory)"
-    - id: external/quartz
-      service: "Quartz Scheduler"
-      purpose: "In-memory JobStore, Asia/Seoul tz. Class auto-close - transitions OPEN -> CLOSED when endDate passes. Switch to JDBC JobStore when scaling to multiple instances."
+    - {id: external/docker_hub, service: "Docker Hub", purpose: "Container image registry (qor7777777/live-class-back)."}
+    - {id: external/aws_ec2, service: "AWS EC2", purpose: "Runtime host (Ubuntu 22.04 + docker compose)"}
+    - {id: external/gemini_api, service: "Gemini API", purpose: "Automated PR code review (gemini-2.5-flash, advisory)"}
+    - {id: external/quartz, service: "Quartz Scheduler", purpose: "In-memory JobStore, Asia/Seoul tz. OPEN -> CLOSED on endDate. Switch to JDBC JobStore when scaling."}
 
 constraints_and_rules:
   strictly_prohibited:
-    - id: policy/no_spring_in_domain
-      text: "No Spring annotations in the domain layer (@Service etc. belong to the application layer)."
-    - id: policy/no_hardcoded_secrets
-      text: "No hard-coded passwords, API keys, or DB URLs. Everything goes through env vars -> .env or GitHub Secrets."
-    - id: policy/no_overcapacity_path
-      text: "No code path that lets an over-capacity application enter PENDING (only WAITLISTED or rejection)."
-    - id: policy/no_springboot_for_unit
-      text: "Do not use @SpringBootTest for domain unit tests (use plain JUnit)."
-    - id: policy/no_destructive_git
-      text: "git push --force and git reset --hard are forbidden (a pre-bash hook blocks them)."
-    - id: policy/no_spring_security
-      text: "Do not introduce Spring Security (mock auth is enough; out of scope)."
-    - id: policy/no_real_payment
-      text: "No real PG/card integration (mock payment with state transitions only)."
-    - id: policy/no_external_calls_in_compensation_window
-      text: "No external calls between a Redis ZSET update and the matching DB INSERT/UPDATE (keep the compensation window minimal)."
-    - id: policy/no_select_for_update_on_race
-      text: "Do not use PG SELECT FOR UPDATE on the race-critical path (Lua atomic scripts are the only mechanism). @Version optimistic lock is reserved for the 7-day window and state transitions."
+    - {id: policy/no_spring_in_domain, text: "No Spring annotations in the domain layer (@Service etc. belong to application layer)."}
+    - {id: policy/no_hardcoded_secrets, text: "No hard-coded passwords, API keys, or DB URLs. env vars -> .env or GitHub Secrets."}
+    - {id: policy/no_overcapacity_path, text: "No code path that lets an over-capacity application enter PENDING (only WAITLISTED or rejection)."}
+    - {id: policy/no_springboot_for_unit, text: "Do not use @SpringBootTest for domain unit tests (plain JUnit only)."}
+    - {id: policy/no_destructive_git, text: "git push --force and git reset --hard are forbidden (pre-bash hook blocks them)."}
+    - {id: policy/no_spring_security, text: "Do not introduce Spring Security (mock auth is enough; out of scope)."}
+    - {id: policy/no_real_payment, text: "No real PG/card integration (mock payment with state transitions only)."}
+    - {id: policy/no_external_calls_in_compensation_window, text: "No external calls between a Redis ZSET update and the matching DB INSERT/UPDATE (compensation window minimal)."}
+    - {id: policy/no_select_for_update_on_race, text: "Do not use PG SELECT FOR UPDATE on the race-critical path (Lua atomic scripts only). @Version optimistic lock reserved for 7-day window and state transitions."}
   performance_requirements:
-    - id: policy/api_p95_200ms
-      text: "API p95 latency under 200ms (local)."
-    - id: policy/race_test_deterministic
-      text: "100% deterministic outcome on the last-seat race test (10 consecutive runs)."
-    - id: policy/lua_p99_5ms
-      text: "Lua call p99 < 5ms (single Redis roundtrip, EVALSHA cache hit baseline)."
+    - {id: policy/api_p95_200ms, text: "API p95 latency under 200ms (local)."}
+    - {id: policy/race_test_deterministic, text: "100% deterministic outcome on the last-seat race test (10 consecutive runs)."}
+    - {id: policy/lua_p99_5ms, text: "Lua call p99 < 5ms (single Redis roundtrip, EVALSHA cache hit baseline)."}
   language_policy:
-    - id: policy/lang_korean_user_facing
-      text: "User-facing replies are in Korean. Technical artifacts (commit messages, design docs, code comments) are in English."
-    - id: policy/lang_korean_docs_kept
-      text: "Korean-language artifacts (DOCS.md, ARCHITECTURE.md, README.md, etc.) keep their Korean body."
-
-automation_pipeline:
-  id: automation/issue_driven
-  description: "Issue-driven local-led automation. The user authors one GitHub Issue; the main Claude Code session runs Maestro then Worker(s) on demand. GitHub Actions handles notification + auto-rebase + gatekeeping only."
-  trigger:
-    issue_label: "maestro:auto"
-    auto_applied_by_template: ".github/ISSUE_TEMPLATE/automation-feature.yml"
-  agents:
-    - id: agent/maestro
-      path: ".claude/agents/maestro.md"
-      role: "Decompose the Issue into wiki-src/plan-before/NN_*.md + manifest.json. Never writes code."
-    - id: agent/worker
-      path: ".claude/agents/worker.md"
-      role: "Implement one wiki-src/plan-before/NN_*.md inside an isolated worktree and open one PR labeled automation:worker."
-  workflows:
-    - id: workflow/gh/maestro_dispatch
-      path: ".github/workflows/maestro-dispatch.yml"
-      purpose: "Notify the user (Issue comment + needs-maestro label) that the local Maestro should run. No LLM call."
-    - id: workflow/gh/gatekeeper
-      path: ".github/workflows/gatekeeper.yml"
-      purpose: "Auto-merge automation:worker PRs when CI is green AND Gemini reports P0=0, P1=0."
-    - id: workflow/gh/auto_rebase
-      path: ".github/workflows/auto-rebase.yml"
-      purpose: "Rebase open automation:worker PRs when main advances."
-  gatekeeper_conditions:
-    - "Build & Test check_suite conclusion success"
-    - "Latest Gemini review comment shows P0 == 0 AND P1 == 0"
-  labels: ["maestro:auto", "automation:worker", "needs-maestro", "needs-human"]
-  kill_switch:
-    repository_variable: "AUTOMATION_ENABLED"
-    values: ["true", "false"]
-  cost_cap:
-    per_issue_token_budget: 200000
-  guides:
-    - "wiki-src/ko/docs/guides/automation-usage.md"
-    - "wiki-src/ko/docs/guides/automation-hitl.md"
-    - "wiki-src/ko/docs/guides/automation-troubleshooting.md"
-  architecture_docs:
-    - "wiki-src/ko/docs/architecture/automation-pipeline.md"
-    - "wiki-src/ko/docs/architecture/automation-pipeline-workflows.md"
-
-agents_catalog:
-  # automation pipeline 2건(agent/maestro, agent/worker)은 automation_pipeline.agents 에서 단일 정의. 여기는 그 외 모든 subagent.
-  - id: agent/doc_maestro
-    path: ".claude/agents/doc-maestro.md"
-    role: "README 12 sections (direct) + dispatch doc-worker x 4 + doc-troubleshooting-worker x 4 in parallel."
-  - id: agent/doc_worker
-    path: ".claude/agents/doc-worker.md"
-    role: "Single technical doc (api / erd / architecture / cicd) 1 file."
-  - id: agent/doc_troubleshooting_worker
-    path: ".claude/agents/doc-troubleshooting-worker.md"
-    role: "Single troubleshooting doc (problem -> cause -> trade-off -> result)."
-  - id: agent/refactoring_maestro
-    path: ".claude/agents/refactoring-maestro.md"
-    role: "Identify domain boundaries + dispatch refactoring-worker per domain + P0/P1/P2 sorting."
-  - id: agent/refactoring_worker
-    path: ".claude/agents/refactoring-worker.md"
-    role: "Single module 5-criteria scan (rich enum / domain logic / common decoupling / optimization / comments)."
-  - id: agent/context_yaml_maestro
-    path: ".claude/agents/context-yaml-maestro.md"
-    role: "Refactor context.yaml directly + dispatch github-wiki-worker in parallel. Enforce graph schema v3 invariants."
-  - id: agent/github_wiki_worker
-    path: ".claude/agents/github-wiki-worker.md"
-    role: "Refactor a single wiki-src/ko/** path set against source-of-truth code/DOCS."
-
-skills_catalog:
-  - id: skill/pipeline_guard
-    path: ".claude/skills/pipeline-guard.md"
-    role: "5-axis impact scan (hooks / wiki / tests / workflows / context.yaml) auto-enters plan mode on impact."
-  - id: skill/evolution
-    path: ".claude/skills/evolution.md"
-    role: "Refactor cycle wrapping ask-and-delegate, refactoring-maestro, pipeline-guard chaining."
-  - id: skill/business_card_production
-    path: ".claude/skills/business-card-production.md"
-    role: "doc-maestro dispatch + pipeline-guard chaining (README 12 sections + 8 detail docs)."
-  - id: skill/sync_context_wiki
-    path: ".claude/skills/sync-context-wiki.md"
-    role: "Sync context.yaml + wiki-src/ko via context-yaml-maestro + pipeline-guard chaining."
-  - id: skill/design_domain
-    path: ".claude/skills/design-domain.md"
-    role: "DDD domain model design wrapper (ddd-domain-architect)."
-  - id: skill/design_concurrency
-    path: ".claude/skills/design-concurrency.md"
-    role: "Concurrency control architecture wrapper (concurrency-architect)."
-  - id: skill/decompose_tasks
-    path: ".claude/skills/decompose-tasks.md"
-    role: "Sprint task decomposition wrapper (scrum-task-decomposer)."
-  - id: skill/setup_infra
-    path: ".claude/skills/setup-infra.md"
-    role: "Infra + CI/CD scaffolding wrapper (infra-cicd-operator)."
-  - id: skill/setup_git_rules
-    path: ".claude/skills/setup-git-rules.md"
-    role: "Git conventions setup wrapper (git-master-conventions)."
-  - id: skill/exec_blueprint
-    path: ".claude/skills/exec-blueprint.md"
-    role: "Blueprint executor wrapper (blueprint-executor-worker)."
-
-relationships:
-  # Domain containment + state transitions
-  - {from: domain/class, to: domain/enrollment, type: contains}
-  - {from: domain/class, to: state/class/draft, type: transitions_to}
-  - {from: domain/class, to: state/class/open, type: transitions_to}
-  - {from: domain/class, to: state/class/closed, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/pending, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/confirmed, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/cancelled, type: transitions_to}
-  - {from: domain/enrollment, to: state/enrollment/waitlisted, type: transitions_to}
-
-  # Invariants enforced by scripts / external mechanisms
-  - {from: invariant/enrollment/no_overcapacity_pending, to: script/lua/enrollment_apply, type: enforced_by}
-  - {from: invariant/enrollment/fifo_promotion, to: script/lua/enrollment_cancel_promote, type: enforced_by}
-  - {from: invariant/class/auto_close_on_period_end, to: external/quartz, type: enforced_by}
-  - {from: invariant/class/one_way_state, to: api/class/transition_open, type: enforced_by}
-
-  # Race / risk mitigation
-  - {from: term/last_seat_race, to: script/lua/enrollment_apply, type: mitigated_by}
-  - {from: term/last_seat_race, to: mirror/redis/zset_enrolled, type: mitigated_by}
-  - {from: term/waitlist_promotion, to: script/lua/enrollment_cancel_promote, type: mitigated_by}
-
-  # Data flow - scripts write/read mirrors
-  - {from: script/lua/enrollment_apply, to: mirror/redis/zset_enrolled, type: writes}
-  - {from: script/lua/enrollment_apply, to: mirror/redis/zset_waitlist, type: writes}
-  - {from: script/lua/enrollment_apply, to: mirror/redis/class_status, type: reads}
-  - {from: script/lua/enrollment_cancel_promote, to: mirror/redis/zset_enrolled, type: writes}
-  - {from: script/lua/enrollment_cancel_promote, to: mirror/redis/zset_waitlist, type: writes}
-  - {from: script/lua/enrollment_compensate, to: mirror/redis/zset_enrolled, type: writes}
-  - {from: script/lua/enrollment_compensate, to: mirror/redis/zset_waitlist, type: writes}
-
-  # Mirrors reflect domain
-  - {from: mirror/redis/zset_enrolled, to: domain/enrollment, type: mirrors}
-  - {from: mirror/redis/zset_waitlist, to: domain/enrollment, type: mirrors}
-  - {from: mirror/redis/class_status, to: domain/class, type: mirrors}
-
-  # API dependencies
-  - {from: api/enrollment/apply, to: script/lua/enrollment_apply, type: depends_on}
-  - {from: api/enrollment/cancel, to: script/lua/enrollment_cancel_promote, type: depends_on}
-  - {from: api/enrollment/cancel, to: term/cancellation_window, type: scopes}
-  - {from: api/admin/reconcile, to: term/reconcile, type: depends_on}
-  - {from: api/scheduled/auto_close, to: term/auto_close, type: depends_on}
-  - {from: api/class/transition_open, to: state/class/open, type: transitions_to}
-
-  # Scheduled trigger
-  - {from: term/auto_close, to: external/quartz, type: triggered_by}
-
-  # Policy references
-  - {from: policy/no_overcapacity_path, to: invariant/enrollment/no_overcapacity_pending, type: ref}
-  - {from: policy/no_select_for_update_on_race, to: script/lua/enrollment_apply, type: ref}
-
-  # Skills chaining + ownership
-  - {from: skill/sync_context_wiki, to: skill/pipeline_guard, type: chains}
-  - {from: skill/business_card_production, to: skill/pipeline_guard, type: chains}
-  - {from: skill/evolution, to: skill/pipeline_guard, type: chains}
-  - {from: skill/evolution, to: agent/refactoring_maestro, type: owns}
-  - {from: skill/business_card_production, to: agent/doc_maestro, type: owns}
-  - {from: skill/sync_context_wiki, to: agent/context_yaml_maestro, type: owns}
-
-  # Maestro -> Worker dispatch ownership
-  - {from: agent/doc_maestro, to: agent/doc_worker, type: owns}
-  - {from: agent/doc_maestro, to: agent/doc_troubleshooting_worker, type: owns}
-  - {from: agent/refactoring_maestro, to: agent/refactoring_worker, type: owns}
-  - {from: agent/context_yaml_maestro, to: agent/github_wiki_worker, type: owns}
-  - {from: agent/maestro, to: agent/worker, type: owns}
-
-  # Automation pipeline ownership
-  - {from: automation/issue_driven, to: agent/maestro, type: owns}
-  - {from: automation/issue_driven, to: agent/worker, type: owns}
-  - {from: automation/issue_driven, to: workflow/gh/maestro_dispatch, type: owns}
-  - {from: automation/issue_driven, to: workflow/gh/gatekeeper, type: owns}
-  - {from: automation/issue_driven, to: workflow/gh/auto_rebase, type: owns}
-
-  # Doc references
-  - {from: doc/architecture, to: term/zset_mirror, type: ref}
-  - {from: doc/architecture, to: term/lua_atomic_script, type: ref}
-  - {from: doc/docs, to: domain/class, type: ref}
-  - {from: doc/docs, to: domain/enrollment, type: ref}
-  - {from: doc/docs, to: domain/user, type: ref}
+    - {id: policy/lang_korean_user_facing, text: "User-facing replies in Korean. Technical artifacts (commit messages, design docs, code comments) in English."}
+    - {id: policy/lang_korean_docs_kept, text: "Korean-language artifacts (DOCS.md, ARCHITECTURE.md, README.md, etc.) keep their Korean body."}
 
 metadata:
   last_indexed: "2026-05-16"
   index_author: "corinB <gkdisrha2020@gmail.com>"
   primary_branch: "main"
   related_docs:
-    - path: "DOCS.md"
-      description: "Domain design (DDD, 85 lines)"
-    - path: "ARCHITECTURE.md"
-      description: "Concurrency design (72 lines)"
-    - path: "ORCHESTRATION.md"
-      description: "Multi-agent pipeline policy (human-driven 6 agents + automation 2 agents)"
-    - path: "wiki-src/ko/docs/agents/agents.md"
-      description: "Catalog of 8 internal subagents plus the external Codex delegation"
-    - path: "wiki-src/ko/docs/agents/skills.md"
-      description: "Catalog of 6 slash skills plus utility skills"
-    - path: "wiki-src/ko/docs/harness/01-reference.md"
-      description: "12 hooks, 5 lifecycle events, permissions self-reference"
-    - path: "wiki-src/ko/docs/harness/02-architecture.md"
-      description: "Harness structure, lifecycle, hook IO contracts, implementation patterns, design rationale, regression tests"
-    - path: "wiki-src/ko/docs/harness/03-migration.md"
-      description: "Environment assumptions, porting checklist, known pitfalls, troubleshooting"
-    - path: "wiki-src/ko/docs/architecture/automation-pipeline.md"
-      description: "Maestro + Worker automation pipeline design (local-driven)"
-    - path: "wiki-src/ko/docs/architecture/automation-pipeline-workflows.md"
-      description: "Reference for composing the 3 GitHub Actions workflows"
-    - path: "wiki-src/ko/docs/guides/automation-usage.md"
-      description: "Usage guide for the automation pipeline (writing an Issue, triggering)"
-    - path: "wiki-src/ko/docs/guides/automation-hitl.md"
-      description: "HITL intervention via @claude comments"
-    - path: "wiki-src/ko/docs/guides/automation-troubleshooting.md"
-      description: "Handling needs-human PRs, kill switch, recovery"
-    - path: "CLAUDE.md"
-      description: "Behavioral rules + language policy (PR title English, body/reports Korean) + project pointers"
-    - path: "README.md"
-      description: "Submission README (211 lines)"
+    - {path: "DOCS.md", description: "Domain design (DDD, 85 lines)"}
+    - {path: "ARCHITECTURE.md", description: "Concurrency design (72 lines)"}
+    - {path: "ORCHESTRATION.md", description: "Multi-agent pipeline policy (human-driven 6 agents + automation 2 agents)"}
+    - {path: "wiki-src/ko/docs/agents/agents.md", description: "Catalog of 8 internal subagents plus the external Codex delegation"}
+    - {path: "wiki-src/ko/docs/agents/skills.md", description: "Catalog of 6 slash skills plus utility skills"}
+    - {path: "wiki-src/ko/docs/harness/01-reference.md", description: "12 hooks, 5 lifecycle events, permissions self-reference"}
+    - {path: "wiki-src/ko/docs/harness/02-architecture.md", description: "Harness structure, lifecycle, hook IO contracts, implementation patterns, design rationale, regression tests"}
+    - {path: "wiki-src/ko/docs/harness/03-migration.md", description: "Environment assumptions, porting checklist, known pitfalls, troubleshooting"}
+    - {path: "wiki-src/ko/docs/architecture/automation-pipeline.md", description: "Maestro + Worker automation pipeline design (local-driven)"}
+    - {path: "wiki-src/ko/docs/architecture/automation-pipeline-workflows.md", description: "Reference for composing the 3 GitHub Actions workflows"}
+    - {path: "wiki-src/ko/docs/guides/automation-usage.md", description: "Usage guide for the automation pipeline (writing an Issue, triggering)"}
+    - {path: "wiki-src/ko/docs/guides/automation-hitl.md", description: "HITL intervention via @claude comments"}
+    - {path: "wiki-src/ko/docs/guides/automation-troubleshooting.md", description: "Handling needs-human PRs, kill switch, recovery"}
+    - {path: "CLAUDE.md", description: "Behavioral rules + language policy (PR title English, body/reports Korean) + project pointers"}
+    - {path: "README.md", description: "Submission README (211 lines)"}
   pipeline_state_files:
     - "wiki-src/plan-before/*.md  # pending tasks (directory created lazily by maestro)"
     - "wiki-src/plan-after/*.md  # completed tasks (Wiki staging area)"

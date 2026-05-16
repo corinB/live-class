@@ -1,0 +1,25 @@
+# 서브에이전트 카탈로그. context.yaml 의 `imports:` 에서 참조. automation pipeline 2건(agent/maestro, agent/worker)은 automation.yaml 에 정의.
+imported_by: context.yaml
+
+agents_catalog:
+  - id: agent/doc_maestro
+    path: ".claude/agents/doc-maestro.md"
+    role: "README 12 sections (direct) + dispatch doc-worker x 4 + doc-troubleshooting-worker x 4 in parallel."
+  - id: agent/doc_worker
+    path: ".claude/agents/doc-worker.md"
+    role: "Single technical doc (api / erd / architecture / cicd) 1 file."
+  - id: agent/doc_troubleshooting_worker
+    path: ".claude/agents/doc-troubleshooting-worker.md"
+    role: "Single troubleshooting doc (problem -> cause -> trade-off -> result)."
+  - id: agent/refactoring_maestro
+    path: ".claude/agents/refactoring-maestro.md"
+    role: "Identify domain boundaries + dispatch refactoring-worker per domain + P0/P1/P2 sorting."
+  - id: agent/refactoring_worker
+    path: ".claude/agents/refactoring-worker.md"
+    role: "Single module 5-criteria scan (rich enum / domain logic / common decoupling / optimization / comments)."
+  - id: agent/context_yaml_maestro
+    path: ".claude/agents/context-yaml-maestro.md"
+    role: "Refactor context.yaml directly + dispatch github-wiki-worker in parallel. Enforce graph schema v3 invariants."
+  - id: agent/github_wiki_worker
+    path: ".claude/agents/github-wiki-worker.md"
+    role: "Refactor a single wiki-src/ko/** path set against source-of-truth code/DOCS."

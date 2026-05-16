@@ -1,0 +1,82 @@
+# context.yaml + agents.yaml + skills.yaml + automation.yaml 노드 간 cross-cutting 관계 트리플. `imports:` 통해 audit 검증.
+imported_by: context.yaml
+
+relationships:
+  # Domain containment + state transitions
+  - {from: domain/class, to: domain/enrollment, type: contains}
+  - {from: domain/class, to: state/class/draft, type: transitions_to}
+  - {from: domain/class, to: state/class/open, type: transitions_to}
+  - {from: domain/class, to: state/class/closed, type: transitions_to}
+  - {from: domain/enrollment, to: state/enrollment/pending, type: transitions_to}
+  - {from: domain/enrollment, to: state/enrollment/confirmed, type: transitions_to}
+  - {from: domain/enrollment, to: state/enrollment/cancelled, type: transitions_to}
+  - {from: domain/enrollment, to: state/enrollment/waitlisted, type: transitions_to}
+
+  # Invariants enforced by scripts / external mechanisms
+  - {from: invariant/enrollment/no_overcapacity_pending, to: script/lua/enrollment_apply, type: enforced_by}
+  - {from: invariant/enrollment/fifo_promotion, to: script/lua/enrollment_cancel_promote, type: enforced_by}
+  - {from: invariant/class/auto_close_on_period_end, to: external/quartz, type: enforced_by}
+  - {from: invariant/class/one_way_state, to: api/class/transition_open, type: enforced_by}
+
+  # Race / risk mitigation
+  - {from: term/last_seat_race, to: script/lua/enrollment_apply, type: mitigated_by}
+  - {from: term/last_seat_race, to: mirror/redis/zset_enrolled, type: mitigated_by}
+  - {from: term/waitlist_promotion, to: script/lua/enrollment_cancel_promote, type: mitigated_by}
+
+  # Data flow - scripts write/read mirrors
+  - {from: script/lua/enrollment_apply, to: mirror/redis/zset_enrolled, type: writes}
+  - {from: script/lua/enrollment_apply, to: mirror/redis/zset_waitlist, type: writes}
+  - {from: script/lua/enrollment_apply, to: mirror/redis/class_status, type: reads}
+  - {from: script/lua/enrollment_cancel_promote, to: mirror/redis/zset_enrolled, type: writes}
+  - {from: script/lua/enrollment_cancel_promote, to: mirror/redis/zset_waitlist, type: writes}
+  - {from: script/lua/enrollment_compensate, to: mirror/redis/zset_enrolled, type: writes}
+  - {from: script/lua/enrollment_compensate, to: mirror/redis/zset_waitlist, type: writes}
+
+  # Mirrors reflect domain
+  - {from: mirror/redis/zset_enrolled, to: domain/enrollment, type: mirrors}
+  - {from: mirror/redis/zset_waitlist, to: domain/enrollment, type: mirrors}
+  - {from: mirror/redis/class_status, to: domain/class, type: mirrors}
+
+  # API dependencies
+  - {from: api/enrollment/apply, to: script/lua/enrollment_apply, type: depends_on}
+  - {from: api/enrollment/cancel, to: script/lua/enrollment_cancel_promote, type: depends_on}
+  - {from: api/enrollment/cancel, to: term/cancellation_window, type: scopes}
+  - {from: api/admin/reconcile, to: term/reconcile, type: depends_on}
+  - {from: api/scheduled/auto_close, to: term/auto_close, type: depends_on}
+  - {from: api/class/transition_open, to: state/class/open, type: transitions_to}
+
+  # Scheduled trigger
+  - {from: term/auto_close, to: external/quartz, type: triggered_by}
+
+  # Policy references
+  - {from: policy/no_overcapacity_path, to: invariant/enrollment/no_overcapacity_pending, type: ref}
+  - {from: policy/no_select_for_update_on_race, to: script/lua/enrollment_apply, type: ref}
+
+  # Skills chaining + ownership (skill nodes live in .claude/context/skills.yaml)
+  - {from: skill/sync_context_wiki, to: skill/pipeline_guard, type: chains}
+  - {from: skill/business_card_production, to: skill/pipeline_guard, type: chains}
+  - {from: skill/evolution, to: skill/pipeline_guard, type: chains}
+  - {from: skill/evolution, to: agent/refactoring_maestro, type: owns}
+  - {from: skill/business_card_production, to: agent/doc_maestro, type: owns}
+  - {from: skill/sync_context_wiki, to: agent/context_yaml_maestro, type: owns}
+
+  # Maestro -> Worker dispatch ownership (agent nodes in .claude/context/agents.yaml + automation.yaml)
+  - {from: agent/doc_maestro, to: agent/doc_worker, type: owns}
+  - {from: agent/doc_maestro, to: agent/doc_troubleshooting_worker, type: owns}
+  - {from: agent/refactoring_maestro, to: agent/refactoring_worker, type: owns}
+  - {from: agent/context_yaml_maestro, to: agent/github_wiki_worker, type: owns}
+  - {from: agent/maestro, to: agent/worker, type: owns}
+
+  # Automation pipeline ownership
+  - {from: automation/issue_driven, to: agent/maestro, type: owns}
+  - {from: automation/issue_driven, to: agent/worker, type: owns}
+  - {from: automation/issue_driven, to: workflow/gh/maestro_dispatch, type: owns}
+  - {from: automation/issue_driven, to: workflow/gh/gatekeeper, type: owns}
+  - {from: automation/issue_driven, to: workflow/gh/auto_rebase, type: owns}
+
+  # Doc references
+  - {from: doc/architecture, to: term/zset_mirror, type: ref}
+  - {from: doc/architecture, to: term/lua_atomic_script, type: ref}
+  - {from: doc/docs, to: domain/class, type: ref}
+  - {from: doc/docs, to: domain/enrollment, type: ref}
+  - {from: doc/docs, to: domain/user, type: ref}
