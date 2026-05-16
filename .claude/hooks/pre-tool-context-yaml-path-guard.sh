@@ -66,7 +66,7 @@ while IFS= read -r line; do
     [ -z "${raw_path}" ] && continue
     [[ "${raw_path}" == *"*"* ]] && continue
     abs_path="${REPO_ROOT}/${raw_path}"
-    if [ ! -f "${abs_path}" ]; then
+    if [ ! -e "${abs_path}" ]; then
       broken_paths+=("${raw_path}")
     fi
   fi
