@@ -1,0 +1,34 @@
+# 슬래시 스킬 카탈로그. context.yaml 의 `imports:` 에서 참조.
+imported_by: context.yaml
+
+skills_catalog:
+  - id: skill/pipeline_guard
+    path: ".claude/skills/pipeline-guard.md"
+    role: "5-axis impact scan (hooks / wiki / tests / workflows / context.yaml) auto-enters plan mode on impact."
+  - id: skill/evolution
+    path: ".claude/skills/evolution.md"
+    role: "Refactor cycle wrapping ask-and-delegate, refactoring-maestro, pipeline-guard chaining."
+  - id: skill/business_card_production
+    path: ".claude/skills/business-card-production.md"
+    role: "doc-maestro dispatch + pipeline-guard chaining (README 12 sections + 8 detail docs)."
+  - id: skill/sync_context_wiki
+    path: ".claude/skills/sync-context-wiki.md"
+    role: "Sync context.yaml + wiki-src/ko via context-yaml-maestro + pipeline-guard chaining."
+  - id: skill/design_domain
+    path: ".claude/skills/design-domain.md"
+    role: "DDD domain model design wrapper (ddd-domain-architect)."
+  - id: skill/design_concurrency
+    path: ".claude/skills/design-concurrency.md"
+    role: "Concurrency control architecture wrapper (concurrency-architect)."
+  - id: skill/decompose_tasks
+    path: ".claude/skills/decompose-tasks.md"
+    role: "Sprint task decomposition wrapper (scrum-task-decomposer)."
+  - id: skill/setup_infra
+    path: ".claude/skills/setup-infra.md"
+    role: "Infra + CI/CD scaffolding wrapper (infra-cicd-operator)."
+  - id: skill/setup_git_rules
+    path: ".claude/skills/setup-git-rules.md"
+    role: "Git conventions setup wrapper (git-master-conventions)."
+  - id: skill/exec_blueprint
+    path: ".claude/skills/exec-blueprint.md"
+    role: "Blueprint executor wrapper (blueprint-executor-worker)."

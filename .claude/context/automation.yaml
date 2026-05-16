@@ -1,0 +1,42 @@
+# Issue-driven automation pipeline 상세. context.yaml 의 `imports:` 에서 참조.
+imported_by: context.yaml
+
+automation_pipeline:
+  id: automation/issue_driven
+  description: "Issue-driven local-led automation. The user authors one GitHub Issue; the main Claude Code session runs Maestro then Worker(s) on demand. GitHub Actions handles notification + auto-rebase + gatekeeping only."
+  trigger:
+    issue_label: "maestro:auto"
+    auto_applied_by_template: ".github/ISSUE_TEMPLATE/automation-feature.yml"
+  agents:
+    - id: agent/maestro
+      path: ".claude/agents/maestro.md"
+      role: "Decompose the Issue into wiki-src/plan-before/NN_*.md + manifest.json. Never writes code."
+    - id: agent/worker
+      path: ".claude/agents/worker.md"
+      role: "Implement one wiki-src/plan-before/NN_*.md inside an isolated worktree and open one PR labeled automation:worker."
+  workflows:
+    - id: workflow/gh/maestro_dispatch
+      path: ".github/workflows/maestro-dispatch.yml"
+      purpose: "Notify the user (Issue comment + needs-maestro label) that the local Maestro should run. No LLM call."
+    - id: workflow/gh/gatekeeper
+      path: ".github/workflows/gatekeeper.yml"
+      purpose: "Auto-merge automation:worker PRs when CI is green AND Gemini reports P0=0, P1=0."
+    - id: workflow/gh/auto_rebase
+      path: ".github/workflows/auto-rebase.yml"
+      purpose: "Rebase open automation:worker PRs when main advances."
+  gatekeeper_conditions:
+    - "Build & Test check_suite conclusion success"
+    - "Latest Gemini review comment shows P0 == 0 AND P1 == 0"
+  labels: ["maestro:auto", "automation:worker", "needs-maestro", "needs-human"]
+  kill_switch:
+    repository_variable: "AUTOMATION_ENABLED"
+    values: ["true", "false"]
+  cost_cap:
+    per_issue_token_budget: 200000
+  guides:
+    - "wiki-src/ko/docs/guides/automation-usage.md"
+    - "wiki-src/ko/docs/guides/automation-hitl.md"
+    - "wiki-src/ko/docs/guides/automation-troubleshooting.md"
+  architecture_docs:
+    - "wiki-src/ko/docs/architecture/automation-pipeline.md"
+    - "wiki-src/ko/docs/architecture/automation-pipeline-workflows.md"
