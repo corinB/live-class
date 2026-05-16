@@ -4,15 +4,12 @@ name: Gemini AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths-ignore:
-      - '**/*.md'
-      - 'plan/**'
-      - 'reports/**'
-      - '.claude/**'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.gitattributes'
-      - 'LICENSE'
+    # NOTE: paths-ignore intentionally removed so the workflow runs on every PR.
+    # Required status checks must always produce a result; path filters caused
+    # PRs whose changes were entirely under e.g. `.claude/**` to leave the
+    # `gemini-review` context permanently expected, blocking merge. The
+    # equivalent filter is reproduced inside the job via an explicit step that
+    # exits with success when no relevant changes are present.
 
 permissions:
   contents: read
@@ -30,8 +27,39 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Compute path-filter decision
+        id: filter
+        run: |
+          set -euo pipefail
+          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
+          CHANGED=$(git diff --name-only "$BASE_REF...HEAD" || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed files detected; skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Reproduce the previous paths-ignore filter inline.
+          # A file is "ignored" if it matches any of these patterns:
+          #   **/*.md, plan/**, reports/**, .claude/**, .gitignore,
+          #   .claudeignore, .gitattributes, LICENSE
+          IGNORE_REGEX='(\.md$|^plan/|^reports/|^\.claude/|^\.gitignore$|^\.claudeignore$|^\.gitattributes$|^LICENSE$)'
+          SHOULD_RUN=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if echo "$f" | grep -qE "$IGNORE_REGEX"; then
+              continue
+            fi
+            SHOULD_RUN=true
+            break
+          done <<< "$CHANGED"
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "Changed files (truncated):"
+          echo "$CHANGED" | head -30
+
       - name: Compute PR diff (truncated to fit gemini-2.5-pro context)
         id: diff
+        if: steps.filter.outputs.should_run == 'true'
         env:
           # 2.5-pro의 1M token 입력 컨텍스트(약 4M chars) 안에서 시스템 프롬프트·PR 메타데이터·여유 마진을 빼고 안전하게 잡은 cutoff. 기존 50000자로는 한 PR이 보통 누적되면 잘렸음.
           CUTOFF_CHARS: "800000"
@@ -62,6 +90,7 @@ jobs:
 
       - name: Call Gemini API
         id: gemini
+        if: steps.filter.outputs.should_run == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -136,6 +165,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Post review as PR comment
+        if: steps.filter.outputs.should_run == 'true'
         uses: actions/github-script@v7
         env:
           REVIEW: ${{ steps.gemini.outputs.review }}
@@ -158,3 +188,9 @@ jobs:
               issue_number: context.issue.number,
               body,
             });
+
+      - name: Emit skipped notice when no relevant changes
+        if: steps.filter.outputs.should_run != 'true'
+        run: |
+          echo "[gemini-review] skipped — all changed files match paths-ignore patterns."
+          echo "This job emits success so the required status check is satisfied."

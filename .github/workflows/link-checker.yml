@@ -3,15 +3,12 @@ name: Link Checker
 
 on:
   pull_request:
-    paths:
-      - 'context.yaml'
-      - 'CLAUDE.md'
-      - 'ARCHITECTURE.md'
-      - 'DOCS.md'
-      - 'CONTRIBUTING.md'
-      - 'ORCHESTRATION.md'
-      - 'wiki-src/**'
-      - '.github/workflows/link-checker.yml'
+    # NOTE: paths filter intentionally removed so the workflow runs on every PR.
+    # Required status checks must always produce a result; whitelisting paths
+    # caused PRs without doc/wiki changes to leave the `link-check` context
+    # permanently expected, blocking merge. The equivalent whitelist is
+    # reproduced inside the job via an explicit step that exits with success
+    # when no doc/wiki files changed.
   workflow_dispatch:
 
 concurrency:
@@ -30,10 +27,45 @@ jobs:
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Compute path-filter decision
+        id: filter
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # workflow_dispatch / push: always run.
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          git fetch --no-tags --depth=50 origin "${{ github.event.pull_request.base.ref }}"
+          CHANGED=$(git diff --name-only "$BASE_REF...HEAD" || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed files detected; skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Reproduce the previous paths whitelist inline. Run when any changed
+          # file matches one of: context.yaml, top-level *.md (5), wiki-src/**,
+          # or this workflow file itself.
+          MATCH_REGEX='(^context\.yaml$|^CLAUDE\.md$|^ARCHITECTURE\.md$|^DOCS\.md$|^CONTRIBUTING\.md$|^ORCHESTRATION\.md$|^wiki-src/|^\.github/workflows/link-checker\.yml$)'
+          SHOULD_RUN=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if echo "$f" | grep -qE "$MATCH_REGEX"; then
+              SHOULD_RUN=true
+              break
+            fi
+          done <<< "$CHANGED"
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "Changed files (truncated):"
+          echo "$CHANGED" | head -30
 
       - name: Run lychee link checker
         id: lychee
+        if: steps.filter.outputs.should_run == 'true'
         uses: lycheeverse/lychee-action@v2.8.0
         with:
           args: |
@@ -49,3 +81,9 @@ jobs:
             wiki-src/**/*.md
           fail: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Emit skipped notice when no relevant changes
+        if: steps.filter.outputs.should_run != 'true'
+        run: |
+          echo "[link-check] skipped — no doc/wiki files changed in this PR."
+          echo "This job emits success so the required status check is satisfied."
