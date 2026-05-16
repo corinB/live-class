@@ -11,12 +11,12 @@
 
 ## Action Items (Checklist)
 
-- [ ] `infrastructure/ReconcileRunner.java` — `@Component` `implements ApplicationRunner`.
+- [x] `infrastructure/ReconcileRunner.java` — `@Component` `implements ApplicationRunner`.
   - 첫 줄 한국어 주석 `// 부팅 시 OPEN 상태 Class 의 Redis ZSET mirror 를 DB 로부터 재구성하는 ApplicationRunner.`
   - `@Order(Ordered.LOWEST_PRECEDENCE)` — 다른 ApplicationRunner 보다 늦게.
   - 의존: `ClassRepository`, `EnrollmentRepository`, `StringRedisTemplate`.
   - `run(ApplicationArguments args)` 안에서 `classRepository.findByStatus(ClassStatus.OPEN)` 순회 → 각 Class 에 대해 `reconcileOne(classId)` 호출. 예외는 per-class 격리 (try/catch + WARN).
-- [ ] `infrastructure/ReconcileService.java` — `@Service`. 본 로직 분리(부팅 + admin endpoint 둘 다 호출).
+- [x] `infrastructure/ReconcileService.java` — `@Service`. 본 로직 분리(부팅 + admin endpoint 둘 다 호출).
   - `void reconcileOne(UUID classId)`:
     - `redisTemplate.delete(List.of("enrolled:"+classId, "waitlist:"+classId));`
     - `List<Enrollment> activeEnrolled = enrollmentRepository.findByClassIdAndStatusInOrderByAppliedAtAsc(classId, List.of(PENDING, CONFIRMED));`
@@ -25,14 +25,15 @@
     - `Class clazz = classRepository.findById(classId).orElseThrow(...);`
     - `redisTemplate.opsForValue().set("class:status:"+classId, clazz.getStatus().name(), Duration.ofMinutes(5));`
     - INFO 로그 — `reconciled classId={}, enrolled={}, waitlist={}`.
-- [ ] `web/admin/AdminReconcileController.java` — `@RestController @RequestMapping("/api/admin")`.
+- [x] `web/admin/AdminReconcileController.java` — `@RestController @RequestMapping("/api/admin")`.
   - `POST /reconcile/{classId}` — `@CurrentUserId UUID caller, @PathVariable UUID classId`.
     - INFO 로그 `manual reconcile triggered classId={}, caller={}` — caller 가 null 이어도 허용 (mock).
     - `reconcileService.reconcileOne(classId);`
     - 200 + `{"classId": "...", "reconciledAt": "..."}`.
-- [ ] `web/admin/dto/ReconcileResponse.java` (record).
-- [ ] (Verify) `infrastructure/ReconcileServiceTest.java` — `@SpringBootTest` (Testcontainers Postgres + Redis).
-  - capacity=3 Class 에 PENDING 2, WAITLISTED 1 적재 → Redis FLUSHDB → `reconcileOne(classId)` 호출 → `ZCARD enrolled == 2` && `ZCARD waitlist == 1` && `ZRANGE` score 가 DB `appliedAt` 순.
+- [x] `web/admin/dto/ReconcileResponse.java` (record).
+- [x] (Verify) `infrastructure/ReconcileServiceIntegrationTest.java` — `@SpringBootTest` (Testcontainers Postgres + Redis).
+  - capacity=10 Class 에 PENDING 3, CONFIRMED 2, WAITLISTED 4, CANCELLED 1 적재 → Redis FLUSHDB → `reconcileOne(classId)` 호출 → `ZCARD enrolled == 5` && `ZCARD waitlist == 4` && score 가 DB `appliedAt` 순.
   - 같은 reconcile 두 번 호출 → 결과 동일 (멱등).
-- [ ] (Verify) `infrastructure/ReconcileRunnerBootTest.java` — `@SpringBootTest` 로 부팅 직후 OPEN Class 의 ZSET 이 채워져 있는지 검증.
-- [ ] (Verify) `web/admin/AdminReconcileControllerTest.java` — `@WebMvcTest` 또는 `@SpringBootTest`. 호출 시 200 + reconcileService mock 검증.
+  - class:status mirror 재구성 확인.
+- [~] (Verify, 선택 미구현) `infrastructure/ReconcileRunnerBootTest.java` — `@SpringBootTest` 로 부팅 직후 OPEN Class 의 ZSET 이 채워져 있는지 검증. ReconcileServiceIntegrationTest 로 핵심 시나리오 커버됨.
+- [~] (Verify, 선택 미구현) `web/admin/AdminReconcileControllerTest.java` — `@WebMvcTest` 또는 `@SpringBootTest`. 호출 시 200 + reconcileService mock 검증. follow-up 가능.

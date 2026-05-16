@@ -24,6 +24,16 @@ spring:
     job-store-type: memory
     auto-startup: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-components: always
+      show-details: always
+
 springdoc:
   api-docs:
     path: /v3/api-docs

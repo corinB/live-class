@@ -25,4 +25,6 @@ public interface ClassRepository extends JpaRepository<Class, UUID> {
     @Query("select c from Class c where c.status = :status and c.period.endDate < :cutoff")
     List<Class> findByStatusAndPeriodEndDateBefore(@Param("status") ClassStatus status,
                                                    @Param("cutoff") LocalDate cutoff);
+
+    List<Class> findByStatus(ClassStatus status);
 }
