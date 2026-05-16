@@ -3,6 +3,7 @@ package com.example.liveclass.web.error;
 
 import com.example.liveclass.application.enrollment.MirrorUnavailableException;
 import com.example.liveclass.domain.shared.DomainException;
+import com.example.liveclass.infrastructure.ClassLockBusyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -45,6 +46,15 @@ public class GlobalExceptionHandler {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.SERVICE_UNAVAILABLE, "Enrollment service temporarily unavailable. Please retry.");
         detail.setProperty("errorCode", "MIRROR_UNAVAILABLE");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(detail);
+    }
+
+    @ExceptionHandler(ClassLockBusyException.class)
+    public ResponseEntity<ProblemDetail> handleClassLockBusy(ClassLockBusyException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Another request is updating this class right now. Please retry shortly.");
+        detail.setProperty("errorCode", "CLASS_LOCK_BUSY");
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(detail);
     }
 
