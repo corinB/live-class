@@ -87,7 +87,7 @@ business_context:
           text: "When period.endDate passes, Quartz ClassAutoCloseJob auto-closes the class (daily 00:05 KST). A Creator manual close races with auto-close and is resolved by @Version optimistic lock."
     - id: domain/enrollment
       name: "Enrollment"
-      description: "Apply, payment, cancellation, waitlist"
+      description: "Apply, payment, cancellation, waitlist. AFTER_COMMIT side-effect hooks (notification / metrics / external queue) flow through EnrollmentEventListener (4 listeners — onCreated / onConfirmed / onCancelled / onWaitlistPromoted, stub today)."
       core_entities: ["Enrollment", "EnrollmentStatus"]
       states:
         - {id: state/enrollment/pending, value: PENDING}
@@ -166,18 +166,21 @@ context_map:
     - {id: dir/test, path: "live-class/src/test/java", contains: "Unit, integration, and concurrency tests"}
     - {id: dir/plan_after, path: "wiki-src/plan-after", contains: "Completed task files (moved by worker)"}
     - {id: dir/reports, path: "reports", contains: "End-of-run reports per agent (reports/{NN_step}_{agent}_{YYYY-MM-DD}.md)"}
+    - {id: dir/reports_refactoring, path: "reports/refactoring", contains: "/evolution cycle outputs — refactoring-maestro summary + per-domain worker scan reports"}
+    - {id: dir/reports_load_test, path: "reports/load-test", contains: "Isolated load-test result reports (e.g. t3-small / t3-nano limit findings)"}
+    - {id: dir/scripts_load_test, path: "scripts/load-test", contains: "Python E2E load-test harness (open-run.py + README, used against docker-compose.t3-*.yml)"}
     - {id: dir/claude_agents, path: ".claude/agents", contains: "Subagents (catalog at .claude/context/agents.yaml)"}
     - {id: dir/claude_skills, path: ".claude/skills", contains: "Slash skills (catalog at .claude/context/skills.yaml)"}
     - {id: dir/claude_templates, path: ".claude/templates", contains: "Deliverable templates (DOCS, ARCH, plan, report, CONTRIBUTING, PR, compose, Dockerfile, ci-cd)"}
 
   apis:
     - {id: api/class/create, endpoint: "POST /api/classes", caller: "Creator", summary: "creates a DRAFT Class"}
-    - {id: api/class/transition_open, endpoint: "PATCH /api/classes/{id}/status OPEN", caller: "Creator", summary: "starts accepting applications. Refreshes class:status:{id} mirror"}
-    - {id: api/enrollment/apply, endpoint: "POST /api/enrollments", caller: "Classmate", summary: "enrollment_apply.lua atomic ZCARD vs capacity -> DB INSERT (PENDING/WAITLISTED). On DB failure, enrollment_compensate.lua rolls back."}
-    - {id: api/enrollment/confirm_payment, endpoint: "POST /api/enrollments/{id}/confirm-payment", caller: "Classmate (mock)", summary: "@Version optimistic lock PENDING -> CONFIRMED. ZSET unchanged."}
-    - {id: api/enrollment/cancel, endpoint: "DELETE /api/enrollments/{id}", caller: "Classmate", summary: "7-day window check (transactional with DB UPDATE, no TOCTOU) -> DB CANCELLED -> enrollment_cancel_promote.lua ZREM+ZPOPMIN+ZADD -> promoted WAITLISTED -> PENDING. If promoted DB UPDATE fails, compensation reverses the ZSET swap (covered by EnrollmentCancelCompensationTest)."}
+    - {id: api/class/transition_open, endpoint: "PATCH /api/classes/{id}/status OPEN", caller: "Creator", summary: "starts accepting applications. @Version optimistic lock + 1-retry on OL conflict. Refreshes class:status:{id} mirror."}
+    - {id: api/enrollment/apply, endpoint: "POST /api/enrollments", caller: "Classmate", summary: "ClassLockService.executeWithLock(classId) outer-wrap (Redis SET NX PX, 30s TTL, safe-unlock by token) -> enrollment_apply.lua atomic ZCARD vs capacity -> DB INSERT (PENDING/WAITLISTED). DB failure -> enrollment_compensate.lua rolls back. Lock busy -> ClassLockBusyException -> 503 (errorCode CLASS_LOCK_BUSY)."}
+    - {id: api/enrollment/confirm_payment, endpoint: "POST /api/enrollments/{id}/confirm-payment", caller: "Classmate (mock)", summary: "@Version optimistic lock PENDING -> CONFIRMED with 1-retry on OL conflict. ZSET unchanged."}
+    - {id: api/enrollment/cancel, endpoint: "DELETE /api/enrollments/{id}", caller: "Classmate", summary: "ClassLockService.executeWithLock(classId) outer-wrap -> Enrollment.cancel(now) domain method enforces the 7-day window (CONFIRMED branch) and idempotent CANCELLED handling -> DB UPDATE -> enrollment_cancel_promote.lua ZREM+ZPOPMIN+ZADD -> promoted WAITLISTED -> PENDING. Promoted DB UPDATE failure triggers compensation Lua reversing the ZSET swap (covered by EnrollmentCancelCompensationTest)."}
     - {id: api/class/students, endpoint: "GET /api/classes/{id}/students", caller: "Creator only", summary: "paginated list of CONFIRMED Enrollments"}
-    - {id: api/admin/reconcile, endpoint: "POST /api/admin/reconcile/{classId}", caller: "ops", summary: "DEL the ZSET and rebuild enrolled/waitlist from the DB"}
+    - {id: api/admin/reconcile, endpoint: "POST /api/admin/reconcile/{classId}", caller: "ops", summary: "ClassLockService.tryRun(classId) guard (returns false on contention, skipping) -> DEL the ZSET and rebuild enrolled/waitlist from the DB. Shares the lock key with apply/cancel so a concurrent enrollment forces reconcile to skip."}
     - {id: api/scheduled/auto_close, endpoint: "[Scheduled] ClassAutoCloseJob daily at 00:05 KST", caller: "Quartz", summary: "calls autoClose() on OPEN classes whose endDate has passed"}
 
   external_dependencies:
@@ -211,7 +214,7 @@ metadata:
   primary_branch: "main"
   related_docs:
     - {path: "DOCS.md", description: "Domain design (DDD, 85 lines)"}
-    - {path: "ARCHITECTURE.md", description: "Concurrency design (72 lines)"}
+    - {path: "ARCHITECTURE.md", description: "Concurrency design (86 lines)"}
     - {path: "ORCHESTRATION.md", description: "Multi-agent pipeline policy (human-driven 6 agents + automation 2 agents)"}
     - {path: "wiki-src/ko/docs/agents/agents.md", description: "Catalog of 8 internal subagents plus the external Codex delegation"}
     - {path: "wiki-src/ko/docs/agents/skills.md", description: "Catalog of 6 slash skills plus utility skills"}
@@ -224,7 +227,7 @@ metadata:
     - {path: "wiki-src/ko/docs/guides/automation-hitl.md", description: "HITL intervention via @claude comments"}
     - {path: "wiki-src/ko/docs/guides/automation-troubleshooting.md", description: "Handling needs-human PRs, kill switch, recovery"}
     - {path: "CLAUDE.md", description: "Behavioral rules + language policy (PR title English, body/reports Korean) + project pointers"}
-    - {path: "README.md", description: "Submission README (211 lines)"}
+    - {path: "README.md", description: "Submission README (220 lines)"}
   pipeline_state_files:
     - "wiki-src/plan-before/*.md  # pending tasks (directory created lazily by maestro)"
     - "wiki-src/plan-after/*.md  # completed tasks (Wiki staging area)"
