@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @IntegrationTest
 @ExtendWith(RedisContainerExtension.class)
-class CancellationWindowBoundaryConcurrencyTest {
+class CancellationWindowBoundaryTest {
 
     @DynamicPropertySource
     static void containerProperties(DynamicPropertyRegistry registry) {

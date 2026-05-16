@@ -40,7 +40,7 @@ import static org.mockito.Mockito.doThrow;
 
 @IntegrationTest
 @ExtendWith(RedisContainerExtension.class)
-class LuaCompensationConcurrencyTest {
+class LuaCompensationAtomicityTest {
 
     @DynamicPropertySource
     static void containerProperties(DynamicPropertyRegistry registry) {
