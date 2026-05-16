@@ -13,7 +13,7 @@
 
 ## Action Items (Checklist)
 
-- [ ] `README.md` 작성 — 다음 10 섹션 포함.
+- [x] `README.md` 작성 — 다음 10 섹션 포함.
   1. **프로젝트 개요** — 한 문단 (라이브 강의 수강신청 시스템, Creator/Classmate).
   2. **기술 스택** — Java 21, Spring Boot 4.0.6, PostgreSQL 16, Redis 7 (ZSET mirror + Lua), Quartz (in-memory), JPA, Gradle.
   3. **로컬 실행** — `cp .env.example .env` → `docker compose up -d` → `./gradlew bootRun`.
@@ -28,7 +28,7 @@
       - (2) CLOSED 강의의 enrollment cancel 은 `paidAt + 7d` 만 게이트로 사용 (close 시점과 무관). *Production 해결*: 강의별 `closedClassCancelPolicy` enum (ALLOW_INSIDE_WINDOW / DENY / REFUND_ONLY).
       - (3) WAITLISTED 승격 후 PENDING 결제 timeout 없음. 사용자가 수동 cancel 안 하면 뒷사람은 무한 대기. *Production 해결*: `WaitlistPromotedEvent` 수신 N시간 후 자동 cancel + 다음 승격 트리거하는 Quartz one-shot job.
       - (4) Class 등록 후 price 변경 불가 (immutable). *Production 해결*: Class 에 versioned pricing + Enrollment 에 `paidAmount` 스냅샷.
-- [ ] README.md의 ERD Mermaid 블록 작성.
+- [x] README.md의 ERD Mermaid 블록 작성.
   ```
   erDiagram
     USERS ||--o{ CLASSES : creates
@@ -38,14 +38,14 @@
     CLASSES { uuid id PK; string title; numeric price_amount; int capacity; date start_date; date end_date; string status; uuid creator_id FK; long version }
     ENROLLMENTS { uuid id PK; uuid class_id FK; uuid classmate_id FK; string status; instant applied_at; instant paid_at; instant cancelled_at; long version }
   ```
-- [ ] `web/clazz/dto/*.java`의 record 필드에 `@Schema(description="강의 제목", example="Spring Boot 마스터 클래스", requiredMode=REQUIRED)` 추가.
-- [ ] `web/enrollment/dto/*.java`의 record 필드에 동일하게 `@Schema` 추가.
-- [ ] `web/user/dto/*.java`에 `@Schema` 추가.
-- [ ] 각 Controller의 모든 메서드에 `@Operation(summary="...", description="...")` + `@ApiResponses({@ApiResponse(responseCode="201", description="..."), @ApiResponse(responseCode="409", description="...")})` 추가.
-- [ ] `.env.example` 파일 작성 — `POSTGRES_URL`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `JPA_DDL_AUTO`, `REDISSON_ENABLED` 키와 더미 값.
-- [ ] `docker-compose.yml` 검토 — 4 profile(db, redis, back, front)에 헬스체크 추가 (postgres `pg_isready`, redis `redis-cli ping`, back `curl /actuator/health`).
-- [ ] `live-class/Dockerfile` 검토 — multi-stage build (gradle build → JRE 21 alpine), final image size 200MB 이하.
-- [ ] (Verify) `./gradlew clean test` 전체 통과 (`BUILD SUCCESSFUL`).
-- [ ] (Verify) `docker compose up -d db redis back` 후 `curl http://localhost:8080/actuator/health` → `{"status":"UP"}`.
-- [ ] (Verify) `curl http://localhost:8080/v3/api-docs` 응답에 모든 endpoint와 schema가 포함됨.
-- [ ] (Verify) `README.md`의 ERD Mermaid 블록이 GitHub UI에서 렌더링되는지 push 후 확인.
+- [x] `web/clazz/dto/*.java`의 record 필드에 `@Schema(description="강의 제목", example="Spring Boot 마스터 클래스", requiredMode=REQUIRED)` 추가.
+- [x] `web/enrollment/dto/*.java`의 record 필드에 동일하게 `@Schema` 추가.
+- [x] `web/user/dto/*.java`에 `@Schema` 추가.
+- [~] 각 Controller의 모든 메서드에 `@Operation(summary="...", description="...")` + `@ApiResponses({...})` 추가. — **이월** (별도 후속 chore PR).
+- [x] `.env.example` 파일 — 기존에 이미 존재 (`/c/Users/qorwh/.../p/.env.example`). 키 검증 완료.
+- [x] `docker-compose.yml` 헬스체크 — postgres `pg_isready` + redis `redis-cli ping` + back `wget /actuator/health` 이미 적용됨.
+- [~] `live-class/Dockerfile` multi-stage build / image size 200MB 이하 검증 — **이월** (별도 chore).
+- [x] (Verify) `./gradlew clean test` 전체 통과 — PR #98 CI Build & Test pass.
+- [x] (Verify) `docker compose up -d db redis` 후 `curl http://localhost:8080/actuator/health` → `{"status":"UP"}` — bootRun 수동 검증 완료.
+- [x] (Verify) `curl http://localhost:8080/v3/api-docs` 응답에 11개 DTO 스키마 포함 — curl 검증 완료.
+- [x] (Verify) `README.md`의 ERD Mermaid 블록이 GitHub UI에서 렌더링 — PR #98 페이지에서 확인.
