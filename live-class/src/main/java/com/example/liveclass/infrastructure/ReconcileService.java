@@ -58,8 +58,8 @@ public class ReconcileService {
     }
 
     private void doReconcileOne(UUID classId) {
-        String enrolledKey = "enrolled:" + classId;
-        String waitlistKey = "waitlist:" + classId;
+        String enrolledKey = RedisKeyFactory.enrolled(classId);
+        String waitlistKey = RedisKeyFactory.waitlist(classId);
 
         // DEL 으로 기존 ZSET 초기화 — 멱등성 보장
         redisTemplate.delete(List.of(enrolledKey, waitlistKey));
@@ -93,7 +93,7 @@ public class ReconcileService {
         // class:status mirror 재구성 (TTL=5분, Lua 첫 호출 mirror miss 방지)
         Class clazz = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Class not found: " + classId));
-        redisTemplate.opsForValue().set("class:status:" + classId, clazz.getStatus().name(), Duration.ofMinutes(5));
+        redisTemplate.opsForValue().set(RedisKeyFactory.classStatus(classId), clazz.getStatus().name(), Duration.ofMinutes(5));
 
         log.info("reconciled classId={}, enrolled={}, waitlist={}", classId, enrolled.size(), waitlisted.size());
     }

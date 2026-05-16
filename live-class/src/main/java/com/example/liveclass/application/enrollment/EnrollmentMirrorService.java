@@ -2,6 +2,7 @@
 package com.example.liveclass.application.enrollment;
 
 import com.example.liveclass.domain.clazz.ClassStatus;
+import com.example.liveclass.infrastructure.RedisKeyFactory;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -52,7 +53,7 @@ public class EnrollmentMirrorService {
         try {
             return redisTemplate.execute(
                     enrollmentApplyScript,
-                    List.of("enrolled:" + classId, "waitlist:" + classId, "class:status:" + classId),
+                    List.of(RedisKeyFactory.enrolled(classId), RedisKeyFactory.waitlist(classId), RedisKeyFactory.classStatus(classId)),
                     String.valueOf(capacity),
                     classmateId.toString(),
                     String.valueOf(appliedAtNanos));
@@ -69,7 +70,7 @@ public class EnrollmentMirrorService {
         try {
             redisTemplate.execute(
                     enrollmentCompensateScript,
-                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    List.of(RedisKeyFactory.enrolled(classId), RedisKeyFactory.waitlist(classId)),
                     classmateId.toString());
         } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
             throw new MirrorUnavailableException("Redis unavailable during enrollment compensate", ex);
@@ -87,7 +88,7 @@ public class EnrollmentMirrorService {
         try {
             return (List<String>) redisTemplate.execute(
                     enrollmentCancelPromoteScript,
-                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    List.of(RedisKeyFactory.enrolled(classId), RedisKeyFactory.waitlist(classId)),
                     classmateId.toString(),
                     wasConfirmed ? "1" : "0");
         } catch (RedisConnectionFailureException | QueryTimeoutException ex) {
@@ -109,7 +110,7 @@ public class EnrollmentMirrorService {
             String promotedArg = promoted != null ? promoted.toString() : "";
             redisTemplate.execute(
                     enrollmentReverseCancelPromoteScript,
-                    List.of("enrolled:" + classId, "waitlist:" + classId),
+                    List.of(RedisKeyFactory.enrolled(classId), RedisKeyFactory.waitlist(classId)),
                     canceller.toString(),
                     String.valueOf(cancellerScore),
                     promotedArg,
@@ -134,6 +135,6 @@ public class EnrollmentMirrorService {
      * TTL matches ARCHITECTURE §4.4 key convention (300s = 5 minutes).
      */
     public void primeClassStatusMirror(UUID classId, ClassStatus status) {
-        redisTemplate.opsForValue().set("class:status:" + classId, status.name(), Duration.ofMinutes(5));
+        redisTemplate.opsForValue().set(RedisKeyFactory.classStatus(classId), status.name(), Duration.ofMinutes(5));
     }
 }

@@ -95,6 +95,6 @@ public class ClassLockService {
     }
 
     private static String keyFor(UUID classId) {
-        return "lock:reconcile:" + classId;
+        return RedisKeyFactory.classReconcileLock(classId);
     }
 }
